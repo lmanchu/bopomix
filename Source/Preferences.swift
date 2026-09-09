@@ -40,6 +40,11 @@ private let kChineseConversionEnabledKey = "ChineseConversionEnabled"
 private let kHalfWidthPunctuationEnabledKey = "HalfWidthPunctuationEnable"
 private let kEscToCleanInputBufferKey = "EscToCleanInputBuffer"
 private let kKeepReadingUponCompositionError = "KeepReadingUponCompositionError"
+// P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md). No UI
+// yet (planned for P4) -- these are UserDefaults-only for now, per
+// AGENTS.md's Preferences convention.
+private let kMixedScriptEnabledKey = "MixedScriptEnabled"
+private let kMixedScriptLatinOnSpaceKey = "MixedScriptLatinOnSpace"
 
 private let kCandidateTextFontName = "CandidateTextFontName"
 private let kCandidateKeyLabelFontName = "CandidateKeyLabelFontName"
@@ -235,6 +240,8 @@ class Preferences: NSObject {
             kRepeatedPunctuationToSelectCandidateEnabledKey,
             kUseCustomUserPhraseLocation,
             kCustomUserPhraseLocation,
+            kMixedScriptEnabledKey,
+            kMixedScriptLatinOnSpaceKey,
         ]
     }
 
@@ -321,6 +328,19 @@ class Preferences: NSObject {
 
     @UserDefault(key: kKeepReadingUponCompositionError, defaultValue: false)
     @objc static var keepReadingUponCompositionError: Bool
+
+    // MARK: P1 zh/en mixed typing (see zhuyin-ime-personal.md)
+
+    @UserDefault(key: kMixedScriptEnabledKey, defaultValue: true)
+    @objc static var mixedScriptEnabled: Bool
+
+    // Rule C: a dictionary-word run confirmed by a trailing space defaults
+    // to English ("詞典＋空白→英文", 2026-09-09 decision). Turning this off
+    // leaves such a run as an ambiguous Chinese default with a Latin
+    // candidate even with a trailing space -- rule A (structurally
+    // impossible Bopomofo shape) is unaffected either way.
+    @UserDefault(key: kMixedScriptLatinOnSpaceKey, defaultValue: true)
+    @objc static var mixedScriptLatinOnSpace: Bool
 
     // MARK: Optional settings
 

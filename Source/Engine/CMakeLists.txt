@@ -27,6 +27,7 @@ endif()
 
 add_subdirectory(gramambular2)
 add_subdirectory(Mandarin)
+add_subdirectory(MixedScript)
 
 add_library(McBopomofoLMLib
         AssociatedPhrasesV2.h
@@ -51,6 +52,7 @@ add_library(McBopomofoLMLib
         UserPhrasesLM.cpp
         VariantAnnotator.h
         VariantAnnotator.cpp)
+target_link_libraries(McBopomofoLMLib PUBLIC MixedScriptLib)
 
 if (ENABLE_CLANG_TIDY)
     set_target_properties(McBopomofoLMLib PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_COMMAND}")

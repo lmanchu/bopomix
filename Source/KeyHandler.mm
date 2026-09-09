@@ -28,6 +28,7 @@
 #import "McBopomofoLM.h"
 #import "UTF8Helper.h"
 #import "UserOverrideModel.h"
+#import "mixed_script_tracker.h"
 #import "reading_grid.h"
 
 #import <algorithm>
@@ -64,6 +65,9 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
     Formosa::Gramambular2::ReadingGrid::WalkResult _latestWalk;
 
     NSString *_inputMode;
+
+    // P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md).
+    McBopomofo::MixedScript::MixedScriptTracker *_mixedScriptTracker;
 }
 
 @synthesize delegate = _delegate;
@@ -82,10 +86,15 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
         newInputMode = InputModePlainBopomofo;
         newLanguageModel = [LanguageModelManager languageModelPlainBopomofo];
         newLanguageModel->setPhraseReplacementEnabled(false);
+        // P1 zh/en mixed typing is scoped to InputModeBopomofo only (see
+        // zhuyin-ime-personal.md's P1 design section); Plain Bopomofo gets
+        // no English-awareness in this pass.
+        newLanguageModel->setMixedScriptEnabled(false);
     } else {
         newInputMode = InputModeBopomofo;
         newLanguageModel = [LanguageModelManager languageModelMcBopomofo];
         newLanguageModel->setPhraseReplacementEnabled(Preferences.phraseReplacementEnabled);
+        newLanguageModel->setMixedScriptEnabled(Preferences.mixedScriptEnabled);
     }
     newLanguageModel->setExternalConverterEnabled(Preferences.chineseConversionStyle == ChineseConversionStyleModel);
 
@@ -116,6 +125,7 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
 {
     delete _bpmfReadingBuffer;
     delete _grid;
+    delete _mixedScriptTracker;
 }
 
 - (instancetype)init
@@ -127,6 +137,7 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
         // create the lattice builder
         _languageModel = [LanguageModelManager languageModelMcBopomofo];
         _languageModel->setPhraseReplacementEnabled(Preferences.phraseReplacementEnabled);
+        _languageModel->setMixedScriptEnabled(Preferences.mixedScriptEnabled);
         _userOverrideModel = [LanguageModelManager userOverrideModel];
 
         // This returns a shared_ptr that in turn points to an unmanaged object.
@@ -135,6 +146,8 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
         _grid->setReadingSeparator("-");
 
         _inputMode = InputModeBopomofo;
+
+        _mixedScriptTracker = new McBopomofo::MixedScript::MixedScriptTracker([LanguageModelManager latinLexicon]);
     }
     return self;
 }
@@ -166,6 +179,9 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
         Preferences.keyboardLayout = KeyboardLayoutStandard;
     }
     _languageModel->setExternalConverterEnabled(Preferences.chineseConversionStyle == ChineseConversionStyleModel);
+    if (_inputMode == InputModeBopomofo) {
+        _languageModel->setMixedScriptEnabled(Preferences.mixedScriptEnabled);
+    }
 }
 
 - (void)fixNodeWithReading:(NSString *)reading value:(NSString *)value originalCursorIndex:(size_t)originalCursorIndex useMoveCursorAfterSelectionSetting:(BOOL)flag
@@ -181,6 +197,20 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
     Formosa::Gramambular2::ReadingGrid::Candidate candidate(reading.UTF8String, value.UTF8String);
     if (!_grid->overrideCandidate(actualCursor, candidate)) {
         return;
+    }
+
+    // P1 zh/en mixed typing: an explicit Tab or candidate-window pick
+    // (this method is the shared chokepoint for both -- see
+    // _handleTabState and InputMethodController+CandidateControllerDelegate.swift's
+    // didSelectCandidateAtIndex:) of a Latin candidate teaches the user's
+    // own lexicon. This must NOT also fire for the composeReading path's
+    // automatic dictionary-plus-space default (see
+    // MixedScriptTracker::onBoundary()'s doc) -- see
+    // MixedScript::IsAllAsciiLetters()'s doc for why checking the
+    // selected value's shape, rather than looking up LatinPassthroughLM
+    // here, is the reliable signal for "this was a mixedScript pick."
+    if (Preferences.mixedScriptEnabled && McBopomofo::MixedScript::IsAllAsciiLetters(value.UTF8String)) {
+        [LanguageModelManager latinLexicon]->rememberWord(value.UTF8String);
     }
 
     [self _walk];
@@ -300,6 +330,8 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
     _bpmfReadingBuffer->clear();
     _grid->clear();
     _latestWalk = Formosa::Gramambular2::ReadingGrid::WalkResult {};
+    _mixedScriptTracker->reset();
+    _languageModel->mixedScriptLM().clear();
 }
 
 - (void)handleForceCommitWithStateCallback:(void (^)(InputState *))stateCallback
@@ -468,6 +500,49 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
 
     // see if it's valid BPMF reading
     bool isValidKey = _bpmfReadingBuffer->isValidKey((char)charCode);
+
+    // MARK: P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md)
+    //
+    // Only lowercase ASCII letters are ever fed to the tracker. Shift+letter
+    // already took the CapsLock/Shift-forces-English path above (:391-405)
+    // and never reaches here with skipBpmfHandling false and isValidKey
+    // true for the *shifted* (uppercase) charCode anyway -- mixedScript
+    // never overrides that explicit "force English" gesture. Only
+    // InputModeBopomofo is covered in this pass; Plain Bopomofo is
+    // untouched.
+    char rawKey = (char)charCode;
+    bool isAsciiLetterKey = rawKey >= 'a' && rawKey <= 'z';
+    BOOL mixedScriptActive = Preferences.mixedScriptEnabled && _inputMode == InputModeBopomofo && !input.isShiftHold;
+    if (mixedScriptActive && !skipBpmfHandling && isValidKey && isAsciiLetterKey) {
+        McBopomofo::MixedScript::Verdict verdict = _mixedScriptTracker->feedKey(_bpmfReadingBuffer->keyboardLayout(), rawKey);
+        if (verdict == McBopomofo::MixedScript::Verdict::kLatin) {
+            // Rule A (this key, or an earlier key this run, made the
+            // Bopomofo shape structurally dead -- see
+            // BopomofoShapeTracker), or the run was already locked. Never
+            // silently drop the keystroke: stop feeding the real reading
+            // buffer for the rest of this run and show/accumulate the
+            // literal ASCII text instead (see buildInputtingState's
+            // mixedScript branch and _commitMixedScriptLatinRun).
+            _bpmfReadingBuffer->clear();
+            stateCallback([self buildInputtingState]);
+            return YES;
+        }
+        // kChinese or kAmbiguous: the tracker is only observing so far --
+        // fall through to the normal Bopomofo handling below, which still
+        // owns composition either way.
+    } else if (mixedScriptActive && _mixedScriptTracker->isLatinLocked() && rawKey != 8 && rawKey != 27) {
+        // Any key that did not continue the run above (a space, tone
+        // digit, punctuation, Enter, a reserved/control combo...) ends a
+        // Rule-A-locked run: commit it into the grid as literal text now,
+        // before this key gets its own handling further below, so e.g. a
+        // following space/tone-key operates on a grid that already
+        // reflects the run -- exactly as if the user had just finished a
+        // normal Chinese syllable. Backspace (8) and Esc (27) are edits to
+        // the *pending* run, not boundaries that end it -- see
+        // _handleBackspaceWithState and _handleEscWithState.
+        [self _commitMixedScriptLatinRun];
+    }
+
     if (!skipBpmfHandling && isValidKey) {
         _bpmfReadingBuffer->combineKey((char)charCode);
         keyConsumedByReading = YES;
@@ -520,6 +595,21 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
 
         // see if we have a unigram for this
         if (!_languageModel->hasUnigrams(reading)) {
+            // P1 zh/en mixed typing safety net: BopomofoShapeTracker's
+            // structural check (see its class doc) does not catch every
+            // case -- a run can keep a phonologically live shape the
+            // whole time and still land on a reading with no dictionary
+            // entry at all. Rather than silently dropping it here (this
+            // branch's normal behavior otherwise), fall back to treating
+            // it as rule A at the exact point the stock engine already
+            // discovers "no reading found."
+            if (mixedScriptActive && _mixedScriptTracker->hasPendingRun()) {
+                _bpmfReadingBuffer->clear();
+                [self _commitMixedScriptLatinRun];
+                stateCallback([self buildInputtingState]);
+                return YES;
+            }
+
             errorCallback();
 
             if (Preferences.keepReadingUponCompositionError) {
@@ -536,6 +626,17 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
             return YES;
         }
 
+        // P1 zh/en mixed typing, rule B: a dictionary word whose Bopomofo
+        // shape is still alive registers a Latin alternate at this exact
+        // reading *before* insertReading() below, since ReadingGrid caches
+        // a node's unigrams (immutably) the instant it is created -- see
+        // LatinPassthroughLM's class doc.
+        BOOL mixedScriptAmbiguous = mixedScriptActive && _mixedScriptTracker->hasPendingRun() && !_mixedScriptTracker->isLatinLocked();
+        std::string mixedScriptWord = _mixedScriptTracker->latinRun();
+        if (mixedScriptAmbiguous) {
+            _languageModel->mixedScriptLM().registerAlternate(reading, mixedScriptWord);
+        }
+
         _grid->insertReading(reading);
         [self _walk];
 
@@ -547,6 +648,28 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
                 _grid->overrideCandidate(self.actualCandidateCursorIndex, suggestion.candidate, type);
                 [self _walk];
             }
+        }
+
+        if (mixedScriptAmbiguous) {
+            // Rule C: a trailing space/Enter confirms rule B's dictionary
+            // word as English by default ("詞典＋空白→英文", 2026-09-09
+            // decision). Placed after the user override model above so an
+            // actual past user choice for this exact context always wins
+            // over this automatic default. This is an automatic default,
+            // not an explicit user gesture, so it deliberately does NOT
+            // call LatinLexicon::rememberWord() -- fixNodeWithReading:
+            // below (Tab or the candidate window) is the real learning
+            // hook.
+            bool isSpaceOrEnd = (charCode == 32 || charCode == 13);
+            if (Preferences.mixedScriptLatinOnSpace && _mixedScriptTracker->onBoundary(isSpaceOrEnd) == McBopomofo::MixedScript::Verdict::kLatin) {
+                Formosa::Gramambular2::ReadingGrid::Candidate latinCandidate(reading, mixedScriptWord);
+                _grid->overrideCandidate(self.actualCandidateCursorIndex, latinCandidate, Formosa::Gramambular2::ReadingGrid::Node::OverrideType::kOverrideValueWithHighScore);
+                [self _walk];
+            }
+            _languageModel->mixedScriptLM().clearKey(reading);
+        }
+        if (mixedScriptActive) {
+            _mixedScriptTracker->reset();
         }
 
         // then update the text
@@ -826,6 +949,42 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
     return NO;
 }
 
+// MARK: P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md)
+
+// Commits the tracker's pending Latin run (rule A) into the grid as a
+// single literal-text node and resets the tracker. Callers are
+// responsible for stateCallback: this only mutates _grid/_mixedScriptTracker,
+// matching how the surrounding key-handling code builds one InputState per
+// key at the very end of whichever branch actually returns.
+//
+// Uses a single fixed synthetic key ("_latin_") for every rule-A run
+// rather than one key per word: LatinPassthroughLM::registerSoleEntry()
+// followed immediately by insertReading() and clearKey() means the
+// registration is consumed synchronously within this one call, so a fixed
+// key can never collide with a *different* run's value -- ReadingGrid
+// snapshots each Node's unigrams (immutably) into its own grid position
+// the instant it's created, and the underlying McBopomofoLM instance is
+// process-wide (see LanguageModelManager), so clearing immediately after
+// use also matters for not leaking a stale entry to another text field.
+// The leading underscore also keeps this synthetic reading out of
+// tooltip/annotation code paths that already special-case "_"-prefixed
+// readings (e.g. the Issue-753 prior-tone-correction check at :497,
+// _currentHtmlRuby).
+- (void)_commitMixedScriptLatinRun
+{
+    std::string word = _mixedScriptTracker->latinRun();
+    _mixedScriptTracker->reset();
+    if (word.empty()) {
+        return;
+    }
+
+    static std::string const kMixedScriptLatinKey = "_latin_";
+    _languageModel->mixedScriptLM().registerSoleEntry(kMixedScriptLatinKey, word);
+    _grid->insertReading(kMixedScriptLatinKey);
+    _languageModel->mixedScriptLM().clearKey(kMixedScriptLatinKey);
+    [self _walk];
+}
+
 - (BOOL)_handleTabState:(InputState *)state shiftIsHold:(BOOL)shiftIsHold stateCallback:(void (^)(InputState *))stateCallback errorCallback:(void (^)(void))errorCallback
 {
     if (!_grid->length()) {
@@ -923,7 +1082,22 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
         // Bopomofo reading, in odds with the expectation of users from
         // other platforms
 
-        if (!_bpmfReadingBuffer->isEmpty()) {
+        // P1 zh/en mixed typing: a pending Latin run (see
+        // MixedScriptTracker) has no representation in
+        // _bpmfReadingBuffer -- it is the "current in-progress reading"
+        // equivalent for Esc's cancel-in-progress-input semantics here,
+        // so it is cancelled the same way, without waiting for
+        // escToCleanInputBufferEnabled.
+        if (Preferences.mixedScriptEnabled && _mixedScriptTracker->hasPendingRun()) {
+            _mixedScriptTracker->reset();
+            if (!_grid->length()) {
+                InputStateEmptyIgnoringPreviousState *empty = [[InputStateEmptyIgnoringPreviousState alloc] init];
+                stateCallback(empty);
+            } else {
+                InputStateInputting *inputting = (InputStateInputting *)[self buildInputtingState];
+                stateCallback(inputting);
+            }
+        } else if (!_bpmfReadingBuffer->isEmpty()) {
             _bpmfReadingBuffer->clear();
             if (!_grid->length()) {
                 InputStateEmptyIgnoringPreviousState *empty = [[InputStateEmptyIgnoringPreviousState alloc] init];
@@ -1093,6 +1267,24 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
         return NO;
     }
 
+    // P1 zh/en mixed typing: a pending Latin run (see MixedScriptTracker)
+    // has no representation in _bpmfReadingBuffer or _grid yet (see
+    // feedKey's kLatin branch), so it needs its own backspace handling
+    // here instead of falling into deleteReadingBeforeCursor() below,
+    // which would otherwise delete the *previous*, already-committed
+    // syllable rather than the run currently being typed.
+    if (Preferences.mixedScriptEnabled && _bpmfReadingBuffer->isEmpty() && _mixedScriptTracker->hasPendingRun()) {
+        _mixedScriptTracker->popLastLatinChar();
+        if (_mixedScriptTracker->hasPendingRun() || _grid->length()) {
+            InputStateInputting *inputting = (InputStateInputting *)[self buildInputtingState];
+            stateCallback(inputting);
+        } else {
+            InputStateEmptyIgnoringPreviousState *empty = [[InputStateEmptyIgnoringPreviousState alloc] init];
+            stateCallback(empty);
+        }
+        return YES;
+    }
+
     if (_bpmfReadingBuffer->hasToneMarkerOnly()) {
         _bpmfReadingBuffer->clear();
     } else if (_bpmfReadingBuffer->isEmpty()) {
@@ -1106,6 +1298,14 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
         }
     } else {
         _bpmfReadingBuffer->backspace();
+        if (Preferences.mixedScriptEnabled && _mixedScriptTracker->hasPendingRun()) {
+            // Keep the tracker's own observation of this run in sync with
+            // the real reading buffer it mirrors (see
+            // MixedScriptTracker::popLastLatinChar()'s doc for why an
+            // unlocked run is simply restarted rather than precisely
+            // rewound).
+            _mixedScriptTracker->popLastLatinChar();
+        }
     }
 
     if (_bpmfReadingBuffer->isEmpty() && !_grid->length()) {
@@ -2519,7 +2719,15 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
     std::string tailStr = composed.substr(composedCursor, composed.length() - composedCursor);
 
     NSString *head = @(headStr.c_str());
-    NSString *reading = @(_bpmfReadingBuffer->composedString().c_str());
+    // P1 zh/en mixed typing: a pending Latin run (rule A) has nothing in
+    // _bpmfReadingBuffer to show (see feedKey's kLatin branch, which
+    // clears it) -- show the literal ASCII text typed so far instead, so
+    // the composing buffer never goes blank mid-word ("組字區永遠顯示原始
+    // 字母"). A merely-ambiguous, not-yet-locked run needs no such
+    // substitution: _bpmfReadingBuffer still mirrors it normally.
+    NSString *reading = _mixedScriptTracker->isLatinLocked()
+        ? @(_mixedScriptTracker->latinRun().c_str())
+        : @(_bpmfReadingBuffer->composedString().c_str());
     NSString *tail = @(tailStr.c_str());
     NSString *composedText = [head stringByAppendingString:[reading stringByAppendingString:tail]];
     NSInteger cursorIndex = head.length + reading.length;

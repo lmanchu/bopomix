@@ -100,6 +100,12 @@
 		D4F0BBE1279AF8B30071253C /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4F0BBE0279AF8B30071253C /* AppDelegate.swift */; };
 		D4F0BBE4279B08900071253C /* BundleTranslocate.m in Sources */ = {isa = PBXBuildFile; fileRef = D4F0BBE3279B08900071253C /* BundleTranslocate.m */; };
 		D4F0BBE7279B14C20071253C /* Credits.rtf in Resources */ = {isa = PBXBuildFile; fileRef = D4F0BBE9279B14C20071253C /* Credits.rtf */; };
+		63E0D55ACD1FA28E9F64F49B /* latin_lexicon.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CC90804EAA7641938DC3B83D /* latin_lexicon.cpp */; };
+		D6FD5B282916AFE2667A8046 /* bopomofo_shape_tracker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8B80DBD7D5BD6BCE90ECA6C1 /* bopomofo_shape_tracker.cpp */; };
+		A27610A3C99B9E85AB623D3D /* mixed_script_tracker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CEBD03585016BECC3AB3FE4C /* mixed_script_tracker.cpp */; };
+		62A50DF1D7969D7D9E2FFE08 /* latin_passthrough_lm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9BB8B7ABAF7655B19CA15138 /* latin_passthrough_lm.cpp */; };
+		B9A05B79F74F515885326229 /* latin-words.txt in Resources */ = {isa = PBXBuildFile; fileRef = 36256C4C1622EACA909EB7DF /* latin-words.txt */; };
+		FB8203330A53BD667A2C127B /* latin-tech-seed.txt in Resources */ = {isa = PBXBuildFile; fileRef = 55A87E7319502E1CCA2FBE66 /* latin-tech-seed.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -258,6 +264,16 @@
 		D4F0BBE8279B14C20071253C /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; name = Base; path = Base.lproj/Credits.rtf; sourceTree = "<group>"; };
 		D4F0BBEA279B14CB0071253C /* en */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; name = en; path = en.lproj/Credits.rtf; sourceTree = "<group>"; };
 		D4F0BBEB279B14D00071253C /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; name = "zh-Hant"; path = "zh-Hant.lproj/Credits.rtf"; sourceTree = "<group>"; };
+		2C006DFDF78FCBAF1BAF9FBF /* latin_lexicon.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = latin_lexicon.h; sourceTree = "<group>"; };
+		CC90804EAA7641938DC3B83D /* latin_lexicon.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = latin_lexicon.cpp; sourceTree = "<group>"; };
+		1C6C43C26CB979A81AA2EC85 /* bopomofo_shape_tracker.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bopomofo_shape_tracker.h; sourceTree = "<group>"; };
+		8B80DBD7D5BD6BCE90ECA6C1 /* bopomofo_shape_tracker.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = bopomofo_shape_tracker.cpp; sourceTree = "<group>"; };
+		043D7A68C6A4B5B2C6A49895 /* mixed_script_tracker.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mixed_script_tracker.h; sourceTree = "<group>"; };
+		CEBD03585016BECC3AB3FE4C /* mixed_script_tracker.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = mixed_script_tracker.cpp; sourceTree = "<group>"; };
+		D7678006783A3BCA47FDFDA4 /* latin_passthrough_lm.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = latin_passthrough_lm.h; sourceTree = "<group>"; };
+		9BB8B7ABAF7655B19CA15138 /* latin_passthrough_lm.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = latin_passthrough_lm.cpp; sourceTree = "<group>"; };
+		36256C4C1622EACA909EB7DF /* latin-words.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "latin-words.txt"; sourceTree = "<group>"; };
+		55A87E7319502E1CCA2FBE66 /* latin-tech-seed.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "latin-tech-seed.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -370,6 +386,7 @@
 			children = (
 				6A4F5F8F2879E838008C4307 /* gramambular2 */,
 				6A0D4F1F15FC0EB100ABF4B3 /* Mandarin */,
+				549AED0136D2742DC96882C4 /* MixedScript */,
 				6ADF5B132BA513E000577D98 /* AssociatedPhrasesV2.cpp */,
 				6ADF5B182BA513E000577D98 /* AssociatedPhrasesV2.h */,
 				6A660A6F2EAF371000D53D7B /* ByteBlockBackedDictionary.cpp */,
@@ -431,8 +448,25 @@
 				6A833E4B2F0A0F7F0086AD0C /* bpmfvs-variants.txt */,
 				6A38BBF615FC117A00A8A51F /* data.txt */,
 				6AD7CBC715FE555000691B5B /* data-plain-bpmf.txt */,
+				36256C4C1622EACA909EB7DF /* latin-words.txt */,
+				55A87E7319502E1CCA2FBE66 /* latin-tech-seed.txt */,
 			);
 			path = Data;
+			sourceTree = "<group>";
+		};
+		549AED0136D2742DC96882C4 /* MixedScript */ = {
+			isa = PBXGroup;
+			children = (
+				1C6C43C26CB979A81AA2EC85 /* bopomofo_shape_tracker.h */,
+				8B80DBD7D5BD6BCE90ECA6C1 /* bopomofo_shape_tracker.cpp */,
+				2C006DFDF78FCBAF1BAF9FBF /* latin_lexicon.h */,
+				CC90804EAA7641938DC3B83D /* latin_lexicon.cpp */,
+				D7678006783A3BCA47FDFDA4 /* latin_passthrough_lm.h */,
+				9BB8B7ABAF7655B19CA15138 /* latin_passthrough_lm.cpp */,
+				043D7A68C6A4B5B2C6A49895 /* mixed_script_tracker.h */,
+				CEBD03585016BECC3AB3FE4C /* mixed_script_tracker.cpp */,
+			);
+			path = MixedScript;
 			sourceTree = "<group>";
 		};
 		6A4F5F8F2879E838008C4307 /* gramambular2 */ = {
@@ -695,6 +729,8 @@
 				6AD7CBC815FE555000691B5B /* data-plain-bpmf.txt in Resources */,
 				6A187E2616004C5900466B2E /* MainMenu.xib in Resources */,
 				D47D73A827A6C84F00255A50 /* associated-phrases-v2.txt in Resources */,
+				B9A05B79F74F515885326229 /* latin-words.txt in Resources */,
+				FB8203330A53BD667A2C127B /* latin-tech-seed.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -764,6 +800,10 @@
 				6ADF5B192BA513E000577D98 /* AssociatedPhrasesV2.cpp in Sources */,
 				6ADF5B1B2BA513E000577D98 /* UTF8Helper.cpp in Sources */,
 				D41355D8278D74B5005E5CBD /* LanguageModelManager.mm in Sources */,
+				63E0D55ACD1FA28E9F64F49B /* latin_lexicon.cpp in Sources */,
+				D6FD5B282916AFE2667A8046 /* bopomofo_shape_tracker.cpp in Sources */,
+				A27610A3C99B9E85AB623D3D /* mixed_script_tracker.cpp in Sources */,
+				62A50DF1D7969D7D9E2FFE08 /* latin_passthrough_lm.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -11,4 +11,5 @@ target_include_directories(mixime-eval PRIVATE "${MIXIME_ENGINE_SOURCE_DIR}")
 target_link_libraries(mixime-eval PRIVATE
         McBopomofoLMLib
         MandarinLib
-        gramambular2_lib)
+        gramambular2_lib
+        MixedScriptLib)
