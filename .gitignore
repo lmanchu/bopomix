@@ -17,3 +17,10 @@ xcuserdata
 __pycache__
 codecov_comment.md
 DerivedData
+build-engine
+
+# P0.5 eval harness: Lman's own text must never enter this repo. Any file
+# matching *.private.* (corpus candidates, generated eval sets derived from
+# personal vault/Slack text) stays under ~/Dev/mixime-private/ only.
+# See tools/eval/README.md.
+*.private.*
