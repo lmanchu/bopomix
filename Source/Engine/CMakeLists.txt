@@ -4,6 +4,27 @@ project(McBopomofoLMLib)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 
+if (ENABLE_TEST AND NOT TARGET GTest::gtest_main)
+        # Allow configuring this directory standalone (e.g. `cmake -S Source/Engine`)
+        # without going through Source/CMakeLists.txt's FetchContent fallback. This
+        # must run before add_subdirectory() below, since gramambular2/ and Mandarin/
+        # link GTest::gtest_main themselves.
+        # Prefer a locally installed GTest (e.g. `brew install googletest`) via its
+        # CMake package config; only fall back to fetching from GitHub if not found.
+        find_package(GTest CONFIG)
+        if (NOT GTest_FOUND)
+                set(GTEST_VERSION "v1.17.0")
+                MESSAGE(STATUS "Fetching GoogleTest ${GTEST_VERSION} from GitHub")
+                include(FetchContent)
+                FetchContent_Declare(
+                        googletest
+                        URL "https://github.com/google/googletest/archive/refs/tags/${GTEST_VERSION}.zip"
+                )
+                set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+                FetchContent_MakeAvailable(googletest)
+        endif()
+endif()
+
 add_subdirectory(gramambular2)
 add_subdirectory(Mandarin)
 
@@ -147,3 +168,11 @@ if (ENABLE_ENGINE_PROFILE)
                 MandarinLib
                 gramambular2_lib)
 endif ()
+
+# mixime-eval: headless eval harness CLI (see tools/eval/mixime_eval.cpp).
+# tools/eval/ lives outside this source tree, so an explicit binary dir is
+# given to keep its build output under this build tree
+# (<build>/tools/eval/mixime-eval).
+add_subdirectory(
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/eval"
+        "${CMAKE_CURRENT_BINARY_DIR}/tools/eval")
