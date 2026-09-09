@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "AssociatedPhrasesV2.h"
+#include "MixedScript/latin_passthrough_lm.h"
 #include "ParselessLM.h"
 #include "PhraseReplacementMap.h"
 #include "UserPhrasesLM.h"
@@ -110,6 +111,16 @@ class McBopomofoLM : public Formosa::Gramambular2::LanguageModel {
       std::function<std::string(const std::string&)> macroConverter);
   std::string convertMacro(const std::string& input) const;
 
+  // P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md).
+  // When disabled (the default), getUnigrams()/hasUnigrams() ignore
+  // mixedScriptLM() entirely, so mixedScriptEnabled=false leaves existing
+  // behavior byte-for-byte unchanged. KeyHandler drives mixedScriptLM()
+  // directly (see MixedScript::LatinPassthroughLM); McBopomofoLM only
+  // merges its results into the normal unigram dispatch.
+  void setMixedScriptEnabled(bool enabled) { mixedScriptEnabled_ = enabled; }
+  bool mixedScriptEnabled() const { return mixedScriptEnabled_; }
+  MixedScript::LatinPassthroughLM& mixedScriptLM() { return mixedScriptLM_; }
+
   // Methods to allow loading in-memory data for testing purposes.
   void loadLanguageModel(std::unique_ptr<ParselessPhraseDB> db);
   void loadAssociatedPhrasesV2(std::unique_ptr<ParselessPhraseDB> db);
@@ -159,6 +170,8 @@ class McBopomofoLM : public Formosa::Gramambular2::LanguageModel {
   UserPhrasesLM excludedPhrases_;
   PhraseReplacementMap phraseReplacement_;
   AssociatedPhrasesV2 associatedPhrasesV2_;
+  MixedScript::LatinPassthroughLM mixedScriptLM_;
+  bool mixedScriptEnabled_ = false;
 
   std::optional<std::filesystem::path> userPhrasesDataPath_;
   std::optional<std::filesystem::path> excludedPhrasesDataPath_;

@@ -37,6 +37,8 @@ static McBopomofo::McBopomofoLM gLanguageModelMcBopomofo;
 static McBopomofo::McBopomofoLM gLanguageModelPlainBopomofo;
 static McBopomofo::UserOverrideModel gUserOverrideModel(kUserOverrideModelCapacity, kObservedOverrideHalflife);
 static McBopomofo::VariantAnnotator gVariantAnnotator;
+static McBopomofo::MixedScript::LatinLexicon gLatinLexicon;
+static BOOL gLatinLexiconLoaded = NO;
 
 static NSString *const kUserDataTemplateName = @"template-data";
 static NSString *const kUserDataPlainBopomofoTemplateName = @"template-data-plain-bpmf";
@@ -83,6 +85,41 @@ static void LTLoadVariantAnnotatorData()
     }
 }
 
+// P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md).
+// Loads the two bundled word lists plus the user's own learned-word file
+// into gLatinLexicon. Safe to call more than once; only the first call
+// does any work. This never touches gLanguageModelMcBopomofo's
+// mixedScriptEnabled_ flag -- KeyHandler flips that per
+// Preferences.mixedScriptEnabled, independent of whether the lexicon has
+// been loaded (loading is unconditional so the lexicon is warm the first
+// time it is actually needed).
+static void LTLoadMixedScriptLexicon()
+{
+    if (gLatinLexiconLoaded) {
+        return;
+    }
+    gLatinLexiconLoaded = YES;
+
+    Class cls = NSClassFromString(@"McBopomofoInputMethodController");
+    NSString *wordsPath = [[NSBundle bundleForClass:cls] pathForResource:@"latin-words" ofType:@"txt"];
+    if (wordsPath != nil) {
+        gLatinLexicon.loadBuiltinWordList(wordsPath.UTF8String);
+    } else {
+        NSLog(@"Error: No latin-words.txt found in bundle");
+    }
+
+    NSString *techSeedPath = [[NSBundle bundleForClass:cls] pathForResource:@"latin-tech-seed" ofType:@"txt"];
+    if (techSeedPath != nil) {
+        gLatinLexicon.loadBuiltinWordList(techSeedPath.UTF8String);
+    } else {
+        NSLog(@"Error: No latin-tech-seed.txt found in bundle");
+    }
+
+    NSString *userPath = [LanguageModelManager latinUserWordListPath];
+    gLatinLexicon.setUserWordListPath(userPath.UTF8String);
+    gLatinLexicon.loadUserWordList(userPath.UTF8String);
+}
+
 + (void)loadDataModels
 {
     if (!gLanguageModelMcBopomofo.isDataModelLoaded()) {
@@ -101,6 +138,7 @@ static void LTLoadVariantAnnotatorData()
     if (!gVariantAnnotator.loaded()) {
         LTLoadVariantAnnotatorData();
     }
+    LTLoadMixedScriptLexicon();
 }
 
 + (void)loadDataModel:(InputMode)mode
@@ -128,6 +166,7 @@ static void LTLoadVariantAnnotatorData()
             LTLoadVariantAnnotatorData();
         }
     }
+    LTLoadMixedScriptLexicon();
 }
 
 + (void)loadUserPhrasesWithPlainBopomofoEnabled:(BOOL)userPhraseForPlainBopomofo
@@ -448,6 +487,20 @@ static void LTLoadVariantAnnotatorData()
 + (NSString *)phraseReplacementDataPathMcBopomofo
 {
     return [[self dataFolderPath] stringByAppendingPathComponent:@"phrases-replacement.txt"];
+}
+
+// P1 zh/en mixed typing: same folder as McBopomofo's own user phrases (see
+// dataFolderPath above), so it moves with a custom user-phrase location
+// and is included in the same backup/sync story users already have.
++ (NSString *)latinUserWordListPath
+{
+    return [[self dataFolderPath] stringByAppendingPathComponent:@"latin-user.txt"];
+}
+
++ (McBopomofo::MixedScript::LatinLexicon *)latinLexicon
+{
+    LTLoadMixedScriptLexicon();
+    return &gLatinLexicon;
 }
 
 + (McBopomofo::McBopomofoLM *)languageModelMcBopomofo

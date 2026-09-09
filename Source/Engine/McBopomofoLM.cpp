@@ -192,6 +192,24 @@ McBopomofoLM::getUnigrams(const std::string& key) {
   // be able to compete with it. Without the rewrite, ㄉㄨㄥˋ-ㄗㄨㄛˋ
   // would always result in "丼" + "作" instead of "動作" because the
   // node for "丼" would dominate the walk.
+  // P1 zh/en mixed typing: merge in any Latin passthrough/alternate
+  // unigrams KeyHandler registered for this exact key (see
+  // MixedScript::LatinPassthroughLM's class doc). Appended after the
+  // normal unigrams and never boosted, so a rule-B/ambiguous Latin
+  // alternate's low score keeps Chinese as the Viterbi walk's default
+  // while still appearing in candidatesAt(); a rule-A synthetic key has no
+  // competing normal unigrams to begin with, so its (only) entry simply
+  // wins by being the only one. Skipped entirely when mixedScriptEnabled_
+  // is false, so that setting leaves this method's behavior unchanged.
+  if (mixedScriptEnabled_ && mixedScriptLM_.hasUnigrams(key)) {
+    std::vector<Formosa::Gramambular2::LanguageModel::Unigram>
+        mixedScriptUnigrams =
+            filterAndTransformUnigrams(mixedScriptLM_.getUnigrams(key),
+                                       excludedValues, insertedValues);
+    allUnigrams.insert(allUnigrams.end(), mixedScriptUnigrams.begin(),
+                       mixedScriptUnigrams.end());
+  }
+
   if (isKeyMultiSyllable || allUnigrams.empty()) {
     allUnigrams.insert(allUnigrams.begin(), userUnigrams.begin(),
                        userUnigrams.end());
@@ -223,8 +241,12 @@ bool McBopomofoLM::hasUnigrams(const std::string& key) {
     return true;
   }
 
+  bool mixedScriptHasUnigrams =
+      mixedScriptEnabled_ && mixedScriptLM_.hasUnigrams(key);
+
   if (!excludedPhrases_.hasUnigrams(key)) {
-    return userPhrases_.hasUnigrams(key) || languageModel_.hasUnigrams(key);
+    return userPhrases_.hasUnigrams(key) || languageModel_.hasUnigrams(key) ||
+           mixedScriptHasUnigrams;
   }
 
   return !getUnigrams(key).empty();

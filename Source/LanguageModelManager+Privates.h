@@ -25,6 +25,7 @@
 #import "McBopomofoLM.h"
 #import "UserOverrideModel.h"
 #import "VariantAnnotator.h"
+#import "latin_lexicon.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -33,6 +34,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (class, readonly, nonatomic) McBopomofo::McBopomofoLM *languageModelPlainBopomofo;
 @property (class, readonly, nonatomic) McBopomofo::UserOverrideModel *userOverrideModel;
 @property (class, readonly, nonatomic) McBopomofo::VariantAnnotator *variantAnnotator;
+// P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md).
+// Loaded lazily on first access from the bundled latin-words.txt /
+// latin-tech-seed.txt plus the user's own latin-user.txt (same folder as
+// McBopomofo's user phrases -- see +latinUserWordListPath).
+@property (class, readonly, nonatomic) McBopomofo::MixedScript::LatinLexicon *latinLexicon;
+@property (class, readonly, nonatomic) NSString *latinUserWordListPath;
 @end
 
 NS_ASSUME_NONNULL_END

@@ -44,6 +44,8 @@
 
 #include "Mandarin/Mandarin.h"
 #include "McBopomofoLM.h"
+#include "MixedScript/latin_lexicon.h"
+#include "MixedScript/mixed_script_tracker.h"
 #include "UTF8Helper.h"
 #include "gramambular2/reading_grid.h"
 
@@ -54,18 +56,23 @@ using Formosa::Mandarin::BopomofoKeyboardLayout;
 using Formosa::Mandarin::BopomofoReadingBuffer;
 using Formosa::Mandarin::BopomofoSyllable;
 using McBopomofo::McBopomofoLM;
+using McBopomofo::MixedScript::LatinLexicon;
+using McBopomofo::MixedScript::MixedScriptTracker;
+using McBopomofo::MixedScript::Verdict;
 
 struct Args {
   std::filesystem::path dataDir;
+  std::filesystem::path lexiconDir;
   std::string layout = "standard";
   std::string mode;
+  bool mixed = false;
 };
 
 void PrintUsage(const char* argv0) {
   std::cerr
       << "Usage: " << argv0
       << " --data <ResourcesDir> --mode {keys|readings|keyseq} "
-         "[--layout standard]\n"
+         "[--layout standard] [--mixed on|off] [--lexicon-dir <dir>]\n"
       << "\n"
       << "Modes:\n"
       << "  keys      stdin: one ASCII standard-layout key sequence per "
@@ -77,7 +84,14 @@ void PrintUsage(const char* argv0) {
       << "            stdout (tab-separated): composed_text\\t"
          "insert_failures\\tlatency_us\n"
       << "  keyseq    stdin: one pure-CJK sentence per line.\n"
-      << "            stdout (tab-separated): readings\\tstandard_keys\n";
+      << "            stdout (tab-separated): readings\\tstandard_keys\n"
+      << "\n"
+      << "--mixed on drives `keys` mode through the same "
+         "Source/Engine/MixedScript/ decision engine KeyHandler.mm uses "
+         "(see zhuyin-ime-personal.md's P1 section); it is a no-op for "
+         "readings/keyseq. --mixed on requires --lexicon-dir <dir> "
+         "containing latin-words.txt and latin-tech-seed.txt (see "
+         "tools/lexicon/build_lexicon.py and Source/Data/).\n";
 }
 
 bool ParseArgs(int argc, char** argv, Args* outArgs, std::string* error) {
@@ -85,16 +99,32 @@ bool ParseArgs(int argc, char** argv, Args* outArgs, std::string* error) {
     std::string arg = argv[i];
     if (arg == "--data" && i + 1 < argc) {
       outArgs->dataDir = argv[++i];
+    } else if (arg == "--lexicon-dir" && i + 1 < argc) {
+      outArgs->lexiconDir = argv[++i];
     } else if (arg == "--layout" && i + 1 < argc) {
       outArgs->layout = argv[++i];
     } else if (arg == "--mode" && i + 1 < argc) {
       outArgs->mode = argv[++i];
+    } else if (arg == "--mixed" && i + 1 < argc) {
+      std::string value = argv[++i];
+      if (value == "on") {
+        outArgs->mixed = true;
+      } else if (value == "off") {
+        outArgs->mixed = false;
+      } else {
+        *error = "--mixed must be 'on' or 'off', got: " + value;
+        return false;
+      }
     } else if (arg == "--help" || arg == "-h") {
       return false;
     } else {
       *error = "unrecognized or incomplete argument: " + arg;
       return false;
     }
+  }
+  if (outArgs->mixed && outArgs->lexiconDir.empty()) {
+    *error = "--mixed on requires --lexicon-dir <dir>";
+    return false;
   }
   if (outArgs->dataDir.empty()) {
     *error = "--data <ResourcesDir> is required";
@@ -140,10 +170,18 @@ std::string JoinValues(const ReadingGrid::WalkResult& walk) {
 // a reading recognized by the language model (e.g. most English letter runs)
 // are silently dropped after the forced flush, exactly as KeyHandler.mm's
 // errorCallback path does (Preferences.keepReadingUponCompositionError is
-// off by default) -- this eval harness does not add any English-detection
-// logic of its own; that is precisely the gap P1 (F1) is meant to close.
+// off by default) -- unless `lexicon` is non-null (--mixed on), in which
+// case this drives the same Source/Engine/MixedScript/ decision engine
+// KeyHandler.mm's mixedScript hookup uses, mirroring its ordering exactly
+// (see the inline comments below and KeyHandler.mm's own "P1 zh/en mixed
+// typing" sections) so results reflect the shipping app's behavior. With
+// `lexicon == nullptr` this function's behavior is byte-for-byte identical
+// to before P1.
 int RunKeysMode(const std::shared_ptr<McBopomofoLM>& lm,
-                const BopomofoKeyboardLayout* layout) {
+                const BopomofoKeyboardLayout* layout,
+                const LatinLexicon* lexicon) {
+  static const std::string kMixedScriptLatinKey = "_latin_";
+
   std::string line;
   while (std::getline(std::cin, line)) {
     line = StripCR(line);
@@ -153,19 +191,107 @@ int RunKeysMode(const std::shared_ptr<McBopomofoLM>& lm,
     ReadingGrid grid(lm);
     BopomofoReadingBuffer buffer(layout);
     int uncomposable = 0;
+    MixedScriptTracker tracker(lexicon);  // Unused when lexicon == nullptr.
 
-    auto flush = [&]() {
+    // Mirrors KeyHandler.mm's _commitMixedScriptLatinRun: inserts the
+    // pending run's literal text as a single node via a fixed synthetic
+    // reading in the same LatinPassthroughLM McBopomofoLM's unigram
+    // dispatch merges in (see McBopomofoLM::setMixedScriptEnabled()).
+    auto commitLatinRun = [&]() {
+      std::string word = tracker.latinRun();
+      tracker.reset();
+      if (word.empty()) {
+        return;
+      }
+      lm->mixedScriptLM().registerSoleEntry(kMixedScriptLatinKey, word);
+      if (!grid.insertReading(kMixedScriptLatinKey)) {
+        ++uncomposable;  // Shouldn't happen; stay honest if it somehow does.
+      }
+      lm->mixedScriptLM().clearKey(kMixedScriptLatinKey);
+    };
+
+    auto flush = [&](bool isSpaceOrEnd) {
       if (buffer.isEmpty()) {
         return;
       }
       std::string reading = buffer.syllable().composedString();
+
+      if (lexicon != nullptr && tracker.hasPendingRun() &&
+          !lm->hasUnigrams(reading)) {
+        // Rule A safety net (see KeyHandler.mm's identical fallback next
+        // to its own hasUnigrams() check): BopomofoShapeTracker's
+        // structural check does not catch every case -- a run can keep a
+        // live shape the whole time and still land on a reading with no
+        // dictionary entry at all.
+        buffer.clear();
+        commitLatinRun();
+        return;
+      }
+
+      // Rule B: a dictionary word with a still-live shape registers a
+      // Latin alternate at this exact reading *before* insertReading()
+      // below, since ReadingGrid caches a node's unigrams immutably the
+      // instant it is created (see LatinPassthroughLM's class doc).
+      bool mixedScriptAmbiguous = lexicon != nullptr &&
+                                  tracker.hasPendingRun() &&
+                                  !tracker.isLatinLocked();
+      std::string mixedScriptWord = tracker.latinRun();
+      if (mixedScriptAmbiguous) {
+        lm->mixedScriptLM().registerAlternate(reading, mixedScriptWord);
+      }
+
       if (!grid.insertReading(reading)) {
         ++uncomposable;
+      } else if (mixedScriptAmbiguous) {
+        // Rule C: a trailing space/end-of-line confirms rule B's
+        // dictionary word as English by default ("詞典＋空白→英文",
+        // 2026-09-09 decision).
+        if (tracker.onBoundary(isSpaceOrEnd) == Verdict::kLatin) {
+          size_t loc = grid.cursor() - 1;
+          ReadingGrid::Candidate latinCandidate(reading, mixedScriptWord);
+          grid.overrideCandidate(
+              loc, latinCandidate,
+              ReadingGrid::Node::OverrideType::kOverrideValueWithHighScore);
+        }
+      }
+      if (mixedScriptAmbiguous) {
+        lm->mixedScriptLM().clearKey(reading);
+      }
+      if (lexicon != nullptr) {
+        tracker.reset();
       }
       buffer.clear();
     };
 
     for (char rawKey : line) {
+      // P1 zh/en mixed typing hook -- must run *before* the space/valid-key
+      // dispatch below, exactly like KeyHandler.mm's placement at the top
+      // of handleInput: (its own hook runs before even the space-handling
+      // code further down that function). Running it after the space
+      // check instead would miss the far more common case of a Rule-A run
+      // ending in a space rather than a tone digit/punctuation, since
+      // space would `continue` before ever reaching this.
+      bool isAsciiLetterKey = rawKey >= 'a' && rawKey <= 'z';
+      if (lexicon != nullptr && isAsciiLetterKey && buffer.isValidKey(rawKey)) {
+        Verdict verdict = tracker.feedKey(layout, rawKey);
+        if (verdict == Verdict::kLatin) {
+          // Rule A (or already locked): stop feeding the real reading
+          // buffer for the rest of this run -- never silently drop the
+          // key, the literal text lives in tracker.latinRun() until the
+          // next boundary commits it (see commitLatinRun()).
+          buffer.clear();
+          continue;
+        }
+        // kChinese/kAmbiguous: fall through, the tracker is only
+        // observing so far -- the real buffer still owns composition.
+      } else if (lexicon != nullptr && tracker.isLatinLocked()) {
+        // Any key that did not continue the run above (including space)
+        // ends a Rule-A-locked run: commit it now, before this key gets
+        // its own handling below (this harness never sees backspace/Esc,
+        // unlike KeyHandler.mm, so no exclusion is needed for those here).
+        commitLatinRun();
+      }
+
       if (rawKey == ' ') {
         // KeyHandler.mm:516 - space forces composition of a pending
         // (typically tone-1, unmarked) reading. A space with an empty
@@ -173,15 +299,16 @@ int RunKeysMode(const std::shared_ptr<McBopomofoLM>& lm,
         // bindings (chooseCandidateUsingSpace is on by default, so it would
         // open a candidate window instead of committing a literal space);
         // this harness has no candidate UI, so it is simply a no-op then.
-        flush();
+        flush(/*isSpaceOrEnd=*/true);
         continue;
       }
+
       if (buffer.isValidKey(rawKey)) {
         buffer.combineKey(rawKey);
         if (buffer.hasToneMarker() && !buffer.hasToneMarkerOnly()) {
           // KeyHandler.mm:512 - a tone key (with a consonant/vowel already
           // present) immediately triggers composition, no space needed.
-          flush();
+          flush(/*isSpaceOrEnd=*/false);
         }
         continue;
       }
@@ -190,11 +317,22 @@ int RunKeysMode(const std::shared_ptr<McBopomofoLM>& lm,
       // letters/digits/,./;-/space), but handled defensively: flush any
       // pending reading (mirrors the key not being consumed by the reading
       // buffer and falling through in KeyHandler.mm) and skip the key.
-      flush();
+      flush(/*isSpaceOrEnd=*/false);
       std::cerr << "mixime-eval: warning: key '" << rawKey
                 << "' is not a standard-layout BPMF key; skipped\n";
     }
-    flush();  // Simulate a trailing Enter/commit at end of line.
+    // Simulate a trailing Enter/commit at end of line -- exactly like any
+    // other non-continuing key mid-line (see the loop above), this must
+    // first commit a still-pending Rule-A-locked run, since flush() below
+    // only knows about _bpmfReadingBuffer, not about the tracker (this
+    // matters whenever the corpus's last segment on a line is English and
+    // rule A fires without a following space, e.g. "sow" as the final
+    // token of a row -- build_corpus.py's " ".join(keys_parts) puts no
+    // trailing space after the very last segment).
+    if (lexicon != nullptr && tracker.isLatinLocked()) {
+      commitLatinRun();
+    }
+    flush(/*isSpaceOrEnd=*/true);
 
     const ReadingGrid::WalkResult walk = grid.walk();
     const std::string text = JoinValues(walk);
@@ -351,8 +489,26 @@ int main(int argc, char** argv) {
 
   const BopomofoKeyboardLayout* layout = BopomofoKeyboardLayout::StandardLayout();
 
+  LatinLexicon lexicon;
+  const LatinLexicon* lexiconPtr = nullptr;
+  if (args.mixed) {
+    const std::filesystem::path wordsPath = args.lexiconDir / "latin-words.txt";
+    const std::filesystem::path techSeedPath =
+        args.lexiconDir / "latin-tech-seed.txt";
+    if (!lexicon.loadBuiltinWordList(wordsPath.c_str())) {
+      std::cerr << "mixime-eval: error: cannot load " << wordsPath << "\n";
+      return 1;
+    }
+    if (!lexicon.loadBuiltinWordList(techSeedPath.c_str())) {
+      std::cerr << "mixime-eval: error: cannot load " << techSeedPath << "\n";
+      return 1;
+    }
+    lm->setMixedScriptEnabled(true);
+    lexiconPtr = &lexicon;
+  }
+
   if (args.mode == "keys") {
-    return RunKeysMode(lm, layout);
+    return RunKeysMode(lm, layout, lexiconPtr);
   }
   if (args.mode == "readings") {
     return RunReadingsMode(lm);

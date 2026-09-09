@@ -29,7 +29,18 @@ or build mixime's own `McBopomofo` Xcode target for a fresh copy. Only
 
 ```
 mixime-eval --data <ResourcesDir> --mode {keys|readings|keyseq} [--layout standard]
+    [--mixed on|off] [--lexicon-dir <dir>]
 ```
+
+`--mixed on` (P1, see `zhuyin-ime-personal.md`'s P1 design section) drives
+`keys` mode through the same `Source/Engine/MixedScript/` decision engine
+KeyHandler.mm uses for zh/en mixed typing -- rules A (structurally
+impossible Bopomofo shape), B (dictionary word), and C (a following
+space/end-of-line defaults a rule-B word to English). It is a no-op for
+`readings`/`keyseq`. Requires `--lexicon-dir <dir>` pointing at a directory
+with `latin-words.txt` and `latin-tech-seed.txt` (see `Source/Data/` and
+`tools/lexicon/build_lexicon.py`) -- e.g. `--lexicon-dir Source/Data`.
+Default is `off`, which reproduces this document's baseline byte-for-byte.
 
 All three modes read one input per line from stdin and write one
 tab-separated output line to stdout (no header row). Warnings about
@@ -220,6 +231,15 @@ python3 tools/eval/run_eval.py \
 
 See `BASELINE.md` for the actual numbers, the exact command used to
 generate them, and the date/data-file provenance.
+
+Pass `--mixed on --lexicon-dir Source/Data` to measure P1 instead (see the
+CLI's own `--mixed` doc above) -- this **appends** a "## P1" section to
+`BASELINE.md` (via `--baseline-out`, default `BASELINE.md`) rather than
+overwriting it, so the P0.5 baseline above stays intact for comparison.
+Run with `--mixed off` (the default) first to (re)generate that baseline
+section if it is ever missing or stale. The P1 section also lists the top
+20 F1 failures by frequency, each re-run in isolation to categorize
+whether the failure is context-dependent or a genuine rule/dictionary gap.
 
 ## Privacy
 
