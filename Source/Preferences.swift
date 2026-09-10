@@ -44,7 +44,7 @@ private let kKeepReadingUponCompositionError = "KeepReadingUponCompositionError"
 // yet (planned for P4) -- these are UserDefaults-only for now, per
 // AGENTS.md's Preferences convention.
 private let kMixedScriptEnabledKey = "MixedScriptEnabled"
-private let kMixedScriptLatinOnSpaceKey = "MixedScriptLatinOnSpace"
+private let kMixedScriptLatinOnSpaceForUserWordsKey = "MixedScriptLatinOnSpaceForUserWords"
 
 private let kCandidateTextFontName = "CandidateTextFontName"
 private let kCandidateKeyLabelFontName = "CandidateKeyLabelFontName"
@@ -241,7 +241,7 @@ class Preferences: NSObject {
             kUseCustomUserPhraseLocation,
             kCustomUserPhraseLocation,
             kMixedScriptEnabledKey,
-            kMixedScriptLatinOnSpaceKey,
+            kMixedScriptLatinOnSpaceForUserWordsKey,
         ]
     }
 
@@ -331,16 +331,30 @@ class Preferences: NSObject {
 
     // MARK: P1 zh/en mixed typing (see zhuyin-ime-personal.md)
 
-    @UserDefault(key: kMixedScriptEnabledKey, defaultValue: true)
+    /// Master switch for zh/en mixed typing. Opt-in for now (P1):
+    /// `defaults write org.openvanilla.inputmethod.McBopomofo
+    /// MixedScriptEnabled -bool true`. Off, every mixedScript code path
+    /// short-circuits and the input method behaves exactly like upstream
+    /// McBopomofo.
+    @UserDefault(key: kMixedScriptEnabledKey, defaultValue: false)
     @objc static var mixedScriptEnabled: Bool
 
-    // Rule C: a dictionary-word run confirmed by a trailing space defaults
-    // to English ("詞典＋空白→英文", 2026-09-09 decision). Turning this off
-    // leaves such a run as an ambiguous Chinese default with a Latin
-    // candidate even with a trailing space -- rule A (structurally
-    // impossible Bopomofo shape) is unaffected either way.
-    @UserDefault(key: kMixedScriptLatinOnSpaceKey, defaultValue: true)
-    @objc static var mixedScriptLatinOnSpace: Bool
+    /// Whether a run that is a word in the user's *own* Latin lexicon
+    /// (`latin-user.txt` -- words they previously picked as English with
+    /// Tab or the candidate window) auto-commits as English when it is
+    /// followed by a space, instead of staying Chinese with the English
+    /// form on the candidate window's second row.
+    ///
+    /// This used to apply to the whole 200k-word built-in dictionary
+    /// ("詞典＋空白→英文", 2026-09-09). That is unworkable on this
+    /// layout, because space is also how a tone-1 syllable is composed:
+    /// "up ", "el ", "fu/ " stopped producing 因/高/清. Narrowed on
+    /// 2026-09-10 to words the user has personally disambiguated at least
+    /// once (see MixedScriptTracker::onBoundary() and
+    /// docs/REVIEW-P1-2026-09-10.md's B1/B2). Rule A (structurally
+    /// impossible Bopomofo shape) is unaffected either way.
+    @UserDefault(key: kMixedScriptLatinOnSpaceForUserWordsKey, defaultValue: true)
+    @objc static var mixedScriptLatinOnSpaceForUserWords: Bool
 
     // MARK: Optional settings
 

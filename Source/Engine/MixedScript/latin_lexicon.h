@@ -81,23 +81,34 @@ class LatinLexicon {
   // Case-insensitive (ASCII-only folding; the lexicon only ever sees
   // standard-layout Latin runs). Returns true if `text` is a complete
   // dictionary entry of at least 2 characters -- see
-  // MixedScriptTracker::kMinAmbiguousWordLength for why single letters
-  // never count.
+  // MixedScriptTracker::kMinAmbiguousWordLength for the (longer) minimum
+  // the mixed-script rules themselves apply on top of this.
   bool isWord(const std::string& text) const;
+
+  // Case-insensitive. True only for words in the *user's own* store --
+  // i.e. words this user has at some point explicitly picked as English
+  // (Tab or the candidate window, via rememberWord()), never the 200k-word
+  // built-in list. MixedScriptTracker::onBoundary() uses this as the sole
+  // trigger for auto-committing a still-composable run as English on a
+  // trailing space: the built-in list is far too permissive for that (a
+  // two-letter run like "up"/"el" is both an English word and an extremely
+  // common tone-1 syllable), whereas a word in this store is one the user
+  // has personally disambiguated before. See zhuyin-ime-personal.md's P1
+  // section and docs/REVIEW-P1-2026-09-10.md's B1/B2.
+  bool isUserWord(const std::string& text) const;
 
   // Case-insensitive. True if some dictionary entry starts with `text`
   // (including `text` itself, and including 1-character `text`, unlike
   // isWord()). Callers can use this to decide whether it is still worth
   // continuing to treat a run as a candidate English word before it is
-  // long enough for isWord() to apply. O(log n): finds `text`'s insertion
-  // point in the sorted word list and checks the neighbor, rather than
-  // indexing every prefix of every word up front -- the built-in list is
-  // large (the full macOS system word list, see
-  // tools/lexicon/build_lexicon.py), and pre-indexing all of its prefixes
-  // would multiply memory use several-fold for a query pattern that is
-  // not on any hot path (not currently used by MixedScriptTracker's
-  // decision logic; kept for P3's predictive-typing work, see
-  // zhuyin-ime-personal.md's F3 scope).
+  // long enough for isWord() to apply. O(log n) on *every* call, including
+  // the first: sortedWords_ is kept in order as the lists load (the
+  // bundled files are emitted pre-sorted by tools/lexicon/build_lexicon.py,
+  // so keeping it ordered is a linear merge, not a sort) rather than being
+  // sorted lazily on first use, which used to cost ~294 ms on the key
+  // thread the first time anything called this. Not on P1's hot path
+  // (MixedScriptTracker's decision logic never calls it); kept for P3's
+  // predictive-typing work, see zhuyin-ime-personal.md's F3 scope.
   bool isPrefix(const std::string& text) const;
 
   // Returns the word's rank (0 = most frequent) or -1 if `text` is not a
@@ -111,28 +122,36 @@ class LatinLexicon {
   // or candidate-window pick -- never called for the automatic
   // dictionary-plus-space default, see zhuyin-ime-personal.md's P1 design
   // notes and KeyHandler's mixed-script hookup). No-op if `word` is
-  // shorter than 2 characters or already known. Appends to the user word
-  // list file when setUserWordListPath() has been called, and makes the
-  // word available to isWord()/isPrefix()/rank() immediately either way.
-  void rememberWord(const std::string& word);
+  // shorter than 2 characters or already a *user* word. Appends to the
+  // user word list file when setUserWordListPath() has been called, and
+  // makes the word available to isWord()/isUserWord()/isPrefix()/rank()
+  // immediately either way.
+  //
+  // Returns false only when the in-memory update succeeded but persisting
+  // it did not (the file could not be opened or the write failed) -- the
+  // caller is expected to log that and carry on, since typing must never
+  // be blocked by a word-list write. Returns true when there was nothing
+  // to do or everything succeeded.
+  bool rememberWord(const std::string& word);
 
  private:
   static std::string ToLowerAscii(const std::string& text);
-  // Rebuilds sortedWords_ from builtinRank_ + userWords_ if either has
-  // changed since the last build (see sortedWordsStale_).
-  void ensureSortedWords() const;
+  // Merges the pointers appended to sortedWords_ since `oldSize` into the
+  // already-ordered prefix in front of them.
+  void mergeNewSortedWords(size_t oldSize);
 
   // word -> rank (built-in list only; 0 = most frequent).
   std::unordered_map<std::string, int> builtinRank_;
   std::unordered_set<std::string> userWords_;
-  // Every known word (builtin + user), sorted lazily for isPrefix()'s
-  // binary search -- rebuilding is O(n log n) over the whole list, so
-  // loadBuiltinWordList()/loadUserWordList()/rememberWord() only mark this
-  // stale instead of re-sorting per word (loadBuiltinWordList() alone
-  // loads on the order of 10^5 words; re-sorting after every line would be
-  // O(n^2)). mutable because isPrefix() is logically const.
-  mutable std::vector<std::string> sortedWords_;
-  mutable bool sortedWordsStale_ = true;
+  // Every known word (builtin + user), kept sorted for isPrefix()'s binary
+  // search. These point at the keys stored inside builtinRank_/userWords_,
+  // which std::unordered_map/std::unordered_set guarantee stay at a fixed
+  // address for as long as the element lives (rehashing invalidates
+  // iterators, not references) -- so this costs one pointer per word
+  // rather than a second copy of the whole 200k-word list. Kept ordered as
+  // words arrive (see mergeNewSortedWords) instead of being sorted lazily
+  // on the first isPrefix(), which used to stall the key thread.
+  std::vector<const std::string*> sortedWords_;
   std::string userWordListPath_;
   int nextBuiltinRank_ = 0;
 };

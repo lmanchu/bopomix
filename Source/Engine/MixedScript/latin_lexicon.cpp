@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <fstream>
 #include <sstream>
 
@@ -37,20 +38,26 @@ std::string LatinLexicon::ToLowerAscii(const std::string& text) {
   return result;
 }
 
-void LatinLexicon::ensureSortedWords() const {
-  if (!sortedWordsStale_) {
+namespace {
+bool LessByPointee(const std::string* a, const std::string* b) {
+  return *a < *b;
+}
+}  // namespace
+
+void LatinLexicon::mergeNewSortedWords(size_t oldSize) {
+  if (sortedWords_.size() == oldSize) {
     return;
   }
-  sortedWords_.clear();
-  sortedWords_.reserve(builtinRank_.size() + userWords_.size());
-  for (const auto& [word, unusedRank] : builtinRank_) {
-    sortedWords_.push_back(word);
+  auto newBegin = sortedWords_.begin() + static_cast<std::ptrdiff_t>(oldSize);
+  // The bundled lists are emitted already sorted (see
+  // tools/lexicon/build_lexicon.py), so this is normally just the O(n)
+  // is_sorted check plus the merge; sorting is the fallback for a
+  // hand-edited or user-written file.
+  if (!std::is_sorted(newBegin, sortedWords_.end(), LessByPointee)) {
+    std::sort(newBegin, sortedWords_.end(), LessByPointee);
   }
-  for (const std::string& word : userWords_) {
-    sortedWords_.push_back(word);
-  }
-  std::sort(sortedWords_.begin(), sortedWords_.end());
-  sortedWordsStale_ = false;
+  std::inplace_merge(sortedWords_.begin(), newBegin, sortedWords_.end(),
+                     LessByPointee);
 }
 
 bool LatinLexicon::loadBuiltinWordList(const std::string& path) {
@@ -59,6 +66,7 @@ bool LatinLexicon::loadBuiltinWordList(const std::string& path) {
     return false;
   }
 
+  const size_t sortedSizeBefore = sortedWords_.size();
   std::string line;
   while (std::getline(file, line)) {
     if (!line.empty() && line.back() == '\r') {
@@ -87,11 +95,16 @@ bool LatinLexicon::loadBuiltinWordList(const std::string& path) {
     nextBuiltinRank_ = std::max(nextBuiltinRank_, rank + 1);
 
     auto existing = builtinRank_.find(lowerWord);
-    if (existing == builtinRank_.end() || rank < existing->second) {
-      builtinRank_[lowerWord] = rank;
+    if (existing == builtinRank_.end()) {
+      auto inserted = builtinRank_.emplace(lowerWord, rank).first;
+      if (userWords_.find(lowerWord) == userWords_.end()) {
+        sortedWords_.push_back(&inserted->first);
+      }
+    } else if (rank < existing->second) {
+      existing->second = rank;
     }
   }
-  sortedWordsStale_ = true;
+  mergeNewSortedWords(sortedSizeBefore);
   return true;
 }
 
@@ -102,6 +115,7 @@ bool LatinLexicon::loadUserWordList(const std::string& path) {
     return false;
   }
 
+  const size_t sortedSizeBefore = sortedWords_.size();
   std::string line;
   while (std::getline(file, line)) {
     if (!line.empty() && line.back() == '\r') {
@@ -111,9 +125,12 @@ bool LatinLexicon::loadUserWordList(const std::string& path) {
       continue;
     }
     std::string lowerWord = ToLowerAscii(line);
-    userWords_.insert(lowerWord);
+    auto inserted = userWords_.insert(lowerWord);
+    if (inserted.second && builtinRank_.find(lowerWord) == builtinRank_.end()) {
+      sortedWords_.push_back(&(*inserted.first));
+    }
   }
-  sortedWordsStale_ = true;
+  mergeNewSortedWords(sortedSizeBefore);
   return true;
 }
 
@@ -126,15 +143,23 @@ bool LatinLexicon::isWord(const std::string& text) const {
          userWords_.find(lowerText) != userWords_.end();
 }
 
+bool LatinLexicon::isUserWord(const std::string& text) const {
+  if (text.empty()) {
+    return false;
+  }
+  return userWords_.find(ToLowerAscii(text)) != userWords_.end();
+}
+
 bool LatinLexicon::isPrefix(const std::string& text) const {
   if (text.empty()) {
     return true;
   }
-  ensureSortedWords();
   std::string lowerText = ToLowerAscii(text);
-  auto it = std::lower_bound(sortedWords_.begin(), sortedWords_.end(), lowerText);
+  auto it = std::lower_bound(
+      sortedWords_.begin(), sortedWords_.end(), lowerText,
+      [](const std::string* a, const std::string& b) { return *a < b; });
   return it != sortedWords_.end() &&
-         it->compare(0, lowerText.size(), lowerText) == 0;
+         (*it)->compare(0, lowerText.size(), lowerText) == 0;
 }
 
 int LatinLexicon::rank(const std::string& text) const {
@@ -149,23 +174,36 @@ int LatinLexicon::rank(const std::string& text) const {
   return -1;
 }
 
-void LatinLexicon::rememberWord(const std::string& word) {
+bool LatinLexicon::rememberWord(const std::string& word) {
   if (word.size() < 2) {
-    return;
+    return true;
   }
   std::string lowerWord = ToLowerAscii(word);
-  if (userWords_.find(lowerWord) != userWords_.end()) {
-    return;
+  auto inserted = userWords_.insert(lowerWord);
+  if (!inserted.second) {
+    return true;
   }
-  userWords_.insert(lowerWord);
-  sortedWordsStale_ = true;
+  if (builtinRank_.find(lowerWord) == builtinRank_.end()) {
+    auto position =
+        std::lower_bound(sortedWords_.begin(), sortedWords_.end(), lowerWord,
+                         [](const std::string* a, const std::string& b) {
+                           return *a < b;
+                         });
+    sortedWords_.insert(position, &(*inserted.first));
+  }
 
-  if (!userWordListPath_.empty()) {
-    std::ofstream file(userWordListPath_, std::ios::app);
-    if (file.is_open()) {
-      file << lowerWord << "\n";
-    }
+  if (userWordListPath_.empty()) {
+    return true;
   }
+  std::ofstream file(userWordListPath_, std::ios::app);
+  if (!file.is_open()) {
+    return false;
+  }
+  file << lowerWord << "\n";
+  file.flush();
+  // The word is already live in memory either way; the return value only
+  // tells the caller whether it will still be there next launch.
+  return file.good();
 }
 
 }  // namespace McBopomofo::MixedScript

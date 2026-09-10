@@ -144,4 +144,89 @@ TEST(LatinLexiconTest, RememberWordSkipsSingleLetters) {
   EXPECT_EQ(lexicon.userWordCount(), 0u);
 }
 
+// isUserWord() is what decides whether a trailing space auto-commits a
+// still-composable run as English, so it must never be true for a word
+// that only came from the bundled list.
+TEST(LatinLexiconTest, IsUserWordSeparatesTheTwoStores) {
+  TempFile file("acer\napi\n");
+  LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(file.path()));
+  lexicon.rememberWord("openrouter");
+
+  EXPECT_TRUE(lexicon.isWord("acer"));
+  EXPECT_FALSE(lexicon.isUserWord("acer"));
+  EXPECT_TRUE(lexicon.isWord("openrouter"));
+  EXPECT_TRUE(lexicon.isUserWord("OpenRouter"));
+  EXPECT_FALSE(lexicon.isUserWord(""));
+  EXPECT_FALSE(lexicon.isUserWord("nonexistent"));
+}
+
+TEST(LatinLexiconTest, LoadUserWordListCountsAsUserWords) {
+  TempFile file("openrouter\ngmail\n");
+  LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadUserWordList(file.path()));
+
+  EXPECT_TRUE(lexicon.isUserWord("gmail"));
+  EXPECT_TRUE(lexicon.isWord("gmail"));
+  EXPECT_EQ(lexicon.userWordCount(), 2u);
+}
+
+// isPrefix() has to work across every store and every load, without the
+// lazy whole-list sort it used to do on first call.
+TEST(LatinLexiconTest, IsPrefixSpansMultipleLoadsAndRememberedWords) {
+  TempFile builtin("acer\napi\nzebra\n");
+  TempFile seed("gmail\nopenrouter\n");
+  LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(builtin.path()));
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(seed.path()));
+  lexicon.rememberWord("mixime");
+
+  EXPECT_TRUE(lexicon.isPrefix("ac"));
+  EXPECT_TRUE(lexicon.isPrefix("gm"));
+  EXPECT_TRUE(lexicon.isPrefix("openr"));
+  EXPECT_TRUE(lexicon.isPrefix("mix"));
+  EXPECT_TRUE(lexicon.isPrefix("z"));
+  EXPECT_FALSE(lexicon.isPrefix("qq"));
+  EXPECT_FALSE(lexicon.isPrefix("mixz"));
+}
+
+// A word that arrives from both stores must not be double-counted in the
+// sorted list backing isPrefix().
+TEST(LatinLexiconTest, DuplicateAcrossStoresStaysConsistent) {
+  TempFile builtin("acer\n");
+  LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(builtin.path()));
+  lexicon.rememberWord("acer");
+
+  EXPECT_TRUE(lexicon.isWord("acer"));
+  EXPECT_TRUE(lexicon.isUserWord("acer"));
+  EXPECT_TRUE(lexicon.isPrefix("ace"));
+}
+
+TEST(LatinLexiconTest, RememberWordReportsAFailedWrite) {
+  LatinLexicon lexicon;
+  // A path whose parent does not exist: the word still becomes usable
+  // this session, the caller is just told it will not persist.
+  lexicon.setUserWordListPath("/nonexistent/path/latin-user.txt");
+  EXPECT_FALSE(lexicon.rememberWord("openrouter"));
+  EXPECT_TRUE(lexicon.isUserWord("openrouter"));
+}
+
+TEST(LatinLexiconTest, RememberWordReportsSuccessWhenItPersists) {
+  std::filesystem::path userPath =
+      std::filesystem::temp_directory_path() /
+      "mixime_latin_lexicon_test_remember_ok.txt";
+  std::filesystem::remove(userPath);
+
+  LatinLexicon lexicon;
+  lexicon.setUserWordListPath(userPath.string());
+  EXPECT_TRUE(lexicon.rememberWord("openrouter"));
+  // Already known: nothing to do, still a success.
+  EXPECT_TRUE(lexicon.rememberWord("openrouter"));
+  // Too short to record at all.
+  EXPECT_TRUE(lexicon.rememberWord("a"));
+
+  std::filesystem::remove(userPath);
+}
+
 }  // namespace McBopomofo::MixedScript

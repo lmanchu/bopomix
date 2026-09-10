@@ -53,6 +53,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// The following methods are merely for testing.
 @interface LanguageModelManager ()
 + (void)loadDataModels;
+/// P1 zh/en mixed typing: whether the Latin word lists have finished
+/// loading. They load on a background queue (they are ~200k words and used
+/// to add ~150 ms to every activateServer:), so tests that exercise the
+/// dictionary-backed rules have to wait for this rather than assume
+/// +loadDataModels left everything ready.
+@property (class, readonly, nonatomic) BOOL latinLexiconReady;
 @end
 
 @interface LanguageModelManager ()

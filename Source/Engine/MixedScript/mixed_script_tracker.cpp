@@ -56,10 +56,14 @@ Verdict MixedScriptTracker::onBoundary(bool isSpaceOrEnd) const {
   if (!isDictionaryWord) {
     return Verdict::kChinese;
   }
-  // Rule B (dictionary word) + rule C (trailing space/end-of-input) =>
-  // English by default; rule B alone stays an ambiguous Chinese default
-  // with a Latin candidate.
-  return isSpaceOrEnd ? Verdict::kLatin : Verdict::kAmbiguous;
+  // A trailing space promotes a still-composable run to English only for
+  // words in the user's own lexicon -- words they have explicitly chosen
+  // as English before. See the header for why the built-in list cannot be
+  // used here (space is the tone-1 key).
+  if (isSpaceOrEnd && lexicon_->isUserWord(latinRun_)) {
+    return Verdict::kLatin;
+  }
+  return Verdict::kAmbiguous;
 }
 
 void MixedScriptTracker::popLastLatinChar() {
@@ -68,6 +72,9 @@ void MixedScriptTracker::popLastLatinChar() {
   }
   if (latinLocked_) {
     latinRun_.pop_back();
+    if (latinRun_.empty()) {
+      reset();
+    }
     return;
   }
   reset();

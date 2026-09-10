@@ -1,5 +1,38 @@
 # OpenVanilla McBopomofo 小麥注音輸入法
 
+## mixime：中英混打（P1，預設關閉）
+
+這個 fork 多了「不切換輸入法直接打英文」的功能（見
+`~/.claude/plans/zhuyin-ime-personal.md` 的 F1／P1 節）。P1 期間**預設關閉**，
+要 dogfood 請自己打開：
+
+```sh
+defaults write org.openvanilla.inputmethod.McBopomofo MixedScriptEnabled -bool true
+# 關掉：
+defaults write org.openvanilla.inputmethod.McBopomofo MixedScriptEnabled -bool false
+```
+
+⚠️ 2026-09-10 之前的建置預設是**開啟**的，而且 `Preferences.populateDefaults()`
+會把預設值寫進 plist —— 也就是說裝過舊版的機器即使升級也還是開著。這種機器要
+先跑一次 `defaults delete org.openvanilla.inputmethod.McBopomofo MixedScriptEnabled`
+才會回到「預設關閉」。
+
+關閉時所有 mixedScript 的程式路徑都會短路，行為與上游 McBopomofo 完全相同
+（`McBopomofoTests/MixedScriptKeyHandlerTests.swift` 的
+`testB7_DisabledBehavesLikeUpstream` 釘住這件事）。
+
+打開之後：
+
+- 字母打到「注音上不可能組成音節」時（例如 `th`、`acer` 的第二個字母）自動轉成
+  英文，組字區直接顯示原始字母；空白鍵接在英文後面就是一個真正的空白。
+- 打得出合法注音、又剛好是英文單字時（例如 `ell`／`app`）**維持中文**，英文形式
+  放在候選窗第二列，按一次 Tab 就切過去。用 Tab 或候選窗選過的英文詞會寫進
+  `latin-user.txt`，之後再打同一個詞加空白就會自動判成英文。
+- 只支援標準（大千）鍵盤配置與「注音」輸入模式，「傳統注音」不受影響。
+
+另一個開關 `MixedScriptLatinOnSpaceForUserWords`（預設開）控制上面最後那條
+「個人詞庫 + 空白 → 英文」的自動行為。
+
 ## 系統需求
 
 小麥注音輸入法可以在 macOS 13 以上版本運作。如果您要自行編譯小麥注音輸入法，或參與開發，您需要：

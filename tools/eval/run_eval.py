@@ -318,7 +318,7 @@ def main() -> int:
 
         p1_md = f"""
 
-## P1 -- F1 zh/en mixed typing, rule-based pass (2026-09-09)
+## P1 -- engine-only (no KeyHandler; engine regression only)
 
 Generated: {datetime.datetime.now().astimezone().isoformat(timespec='seconds')}
 
@@ -326,6 +326,15 @@ Same corpus and language model as the P0.5 baseline above, run with
 `--mixed on` (Source/Engine/MixedScript/, see
 ~/.claude/plans/zhuyin-ime-personal.md's P1 design section) instead of the
 baseline's unmodified engine.
+
+**These numbers are not acceptance criteria.** `mixime-eval` reimplements
+the *ordering* of KeyHandler.mm's operations over the same engine; it has
+no candidate window, no Esc/backspace handling, no force-commit and no
+user override model, so it cannot see the class of defect that made the
+first P1 round unshippable. The acceptance measurement is the app-path
+section at the end of this file, produced by
+`MixedScriptKeyHandlerTests.testEval200ThroughKeyHandler`. Keep this
+section as an engine regression check only.
 
 ### Commands
 
@@ -335,7 +344,7 @@ python3 tools/eval/run_eval.py --corpus {args.corpus} \\
     --mixed on --lexicon-dir {args.lexicon_dir}
 ```
 
-### F1 -- English segment retention (mode `keys`, mixed=on)
+### F1 -- English segment retention (mode `keys`, mixed=on, engine-only)
 
 | metric | value |
 |---|---|
@@ -343,7 +352,7 @@ python3 tools/eval/run_eval.py --corpus {args.corpus} \\
 | row-level (all English tokens in row retained) | {f1_row_all_retained}/{len(rows)} = {f1_row_rate:.1f}% |
 | latency (avg / p50 / p95 / max) | {statistics.mean(f1_latencies_us):.0f}us / {percentile(f1_latencies_us, 0.5):.0f}us / {percentile(f1_latencies_us, 0.95):.0f}us / {max(f1_latencies_us)}us |
 
-### F2 -- homophone/candidate-selection accuracy (mode `readings`, mixed=on)
+### F2 -- homophone/candidate-selection accuracy (mode `readings`, mixed=on, engine-only)
 
 Expected to be unchanged from the P0.5 baseline above -- rule B only adds a
 low-scored alternate candidate at an existing reading's node (see
@@ -400,11 +409,12 @@ python3 tools/eval/run_eval.py --corpus {args.corpus} \\
 
 ## Results
 
-### F1 -- English segment retention (mode `keys`)
+### F1 -- English segment retention (mode `keys`, engine-only)
 
 Types each corpus row's full ASCII key sequence (Chinese Bopomofo keys and
 English letters interleaved exactly as they would be typed, with no mode
-switch) through the real KeyHandler-equivalent FSM, then checks whether
+switch) through the engine's key-handling order (a *re-implementation* of
+KeyHandler.mm's ordering, not KeyHandler itself), then checks whether
 each gold English token still appears literally in the composed output.
 
 | metric | value |
@@ -420,7 +430,7 @@ switching modes is either silently dropped (composition fails
 `hasUnigrams`) or misrecognized as unrelated Chinese character(s) -- it is
 essentially never coincidentally left as literal ASCII text.
 
-### F2 -- homophone / candidate-selection accuracy (mode `readings`)
+### F2 -- homophone / candidate-selection accuracy (mode `readings`, engine-only)
 
 Feeds each row's gold Bopomofo readings for its zh segments only (no
 English, no key-handling noise) and compares the resulting composed text

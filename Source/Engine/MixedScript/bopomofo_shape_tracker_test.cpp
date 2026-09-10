@@ -96,6 +96,40 @@ TEST(BopomofoShapeTrackerTest, SlThenConsonantRejectsAtThirdLetter) {
   EXPECT_FALSE(tracker.stillComposable());
 }
 
+// The "regression" half of the consonant rule, on its own: a vowel is set
+// first and *then* a consonant key arrives, with no second consonant to
+// trip the "a different consonant was already set" branch instead. Without
+// this, removing the hasMedial_/hasVowel_ check from feed()'s kConsonant
+// case left the whole engine test suite green (mutation M2 in
+// docs/REVIEW-P1-2026-09-10.md), because
+// SlThenConsonantRejectsAtThirdLetter is caught by the other branch too.
+TEST(BopomofoShapeTrackerTest, ConsonantAfterVowelRejects) {
+  BopomofoShapeTracker tracker;
+  EXPECT_TRUE(tracker.feed(Standard(), 'l'));  // vowel AO, no consonant yet
+  EXPECT_TRUE(tracker.stillComposable());
+  EXPECT_FALSE(tracker.feed(Standard(), 't'));  // consonant CH after a vowel
+  EXPECT_FALSE(tracker.stillComposable());
+}
+
+// Same, for a medial rather than a vowel: 'j' -> U (medial), then a
+// consonant.
+TEST(BopomofoShapeTrackerTest, ConsonantAfterMedialRejects) {
+  BopomofoShapeTracker tracker;
+  EXPECT_TRUE(tracker.feed(Standard(), 'j'));  // medial U
+  EXPECT_TRUE(tracker.stillComposable());
+  EXPECT_FALSE(tracker.feed(Standard(), 's'));  // consonant N after a medial
+  EXPECT_FALSE(tracker.stillComposable());
+}
+
+// And the medial-after-vowel regression, which had no test of its own
+// either: 'i' -> O (vowel), then 'u' -> I (medial).
+TEST(BopomofoShapeTrackerTest, MedialAfterVowelRejects) {
+  BopomofoShapeTracker tracker;
+  EXPECT_TRUE(tracker.feed(Standard(), 'i'));  // vowel O
+  EXPECT_FALSE(tracker.feed(Standard(), 'u'));  // medial I after a vowel
+  EXPECT_FALSE(tracker.stillComposable());
+}
+
 // A repeated identical key is not a conflict (harmless no-op overwrite).
 TEST(BopomofoShapeTrackerTest, RepeatingSameKeyIsNotAConflict) {
   BopomofoShapeTracker tracker;
