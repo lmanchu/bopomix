@@ -157,7 +157,12 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
 
         _inputMode = InputModeBopomofo;
 
-        _mixedScriptTracker = new McBopomofo::MixedScript::MixedScriptTracker([LanguageModelManager latinLexicon]);
+        // Deliberately starts without a lexicon: asking for one here would
+        // kick off the word-list load for every user, including the ones
+        // who never turn mixed typing on. handleInput: hands the tracker
+        // the lexicon (and so starts that load) the first time a key is
+        // actually handled with the feature enabled.
+        _mixedScriptTracker = new McBopomofo::MixedScript::MixedScriptTracker(nullptr);
     }
     return self;
 }
@@ -368,7 +373,8 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
     // a state callback (see docs/REVIEW-P1-2026-09-10.md's B6).
     // buildInputtingState below renders the pending run, so once we get
     // past this early return the run is committed like any other text.
-    if (_bpmfReadingBuffer->isEmpty() && _grid->length() == 0 && !_mixedScriptTracker->hasPendingRun()) {
+    BOOL hasPendingLatinRun = Preferences.mixedScriptEnabled && _inputMode == InputModeBopomofo && _mixedScriptTracker->hasPendingRun();
+    if (_bpmfReadingBuffer->isEmpty() && _grid->length() == 0 && !hasPendingLatinRun) {
         // No-op if all are empty.
         return;
     }
