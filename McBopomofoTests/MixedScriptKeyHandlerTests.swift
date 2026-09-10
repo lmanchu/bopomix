@@ -920,4 +920,38 @@ class MixedScriptKeyHandlerTests: XCTestCase {
         type("acer")
         XCTAssertFalse(composingBuffer.contains("acer"), "\(composingBuffer)")
     }
+
+    // MARK: - Round 3 (REVERIFY-P1-2026-09-10.md)
+
+    /// The one blocking finding of the re-verify: BopomofoShapeTracker assumes
+    /// one key -> one Bopomofo component, which only holds for the standard
+    /// layout. On the 26-key layouts the feature must be completely inert --
+    /// ON and OFF have to produce identical output for any key sequence.
+    func testMixedScriptIsInertOnNonStandardLayouts() {
+        for layout in [KeyboardLayout.eten26, KeyboardLayout.hsu, KeyboardLayout.eten, KeyboardLayout.IBM] {
+            Preferences.keyboardLayout = layout
+            for keys in ["th", "acer", "su3cl3", "ji3 slack cj04", "the3"] {
+                Preferences.mixedScriptEnabled = false
+                let off = composingBufferAfterTypingFresh(keys)
+                Preferences.mixedScriptEnabled = true
+                let on = composingBufferAfterTypingFresh(keys)
+                XCTAssertEqual(on, off, "layout \(layout) keys \(keys): mixedScript must be inert")
+            }
+        }
+        Preferences.keyboardLayout = .standard
+    }
+
+    /// R5: a rule-A run has a single candidate. Tab-cycling over it is not a
+    /// choice between Chinese and English and must not touch latin-user.txt.
+    func testR5_TabOnARuleARunDoesNotWriteTheUserLexicon() throws {
+        let path = temporaryUserDataFolder!.appendingPathComponent("latin-user.txt").path
+        let before = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        type("acer")
+        XCTAssertEqual(composingBuffer, "acer")
+        pressTab()
+        XCTAssertEqual(composingBuffer, "acer")
+        let after = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        XCTAssertEqual(after, before, "Tab over a rule-A run must not remember the word")
+    }
+
 }
