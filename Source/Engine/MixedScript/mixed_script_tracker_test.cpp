@@ -23,6 +23,11 @@
 
 #include "mixed_script_tracker.h"
 
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <string>
+
 #include "gtest/gtest.h"
 
 namespace McBopomofo::MixedScript {
@@ -31,6 +36,25 @@ namespace {
 const Formosa::Mandarin::BopomofoKeyboardLayout* Standard() {
   return Formosa::Mandarin::BopomofoKeyboardLayout::StandardLayout();
 }
+
+// A throwaway built-in word list on disk. Needed because "built-in word"
+// and "user word" are now different things to onBoundary(), and
+// rememberWord() can only produce the latter.
+class TempWordList {
+ public:
+  explicit TempWordList(const std::string& content) {
+    path_ = std::filesystem::temp_directory_path() /
+            ("mixime_tracker_test_" +
+             std::to_string(reinterpret_cast<uintptr_t>(this)) + ".txt");
+    std::ofstream file(path_);
+    file << content;
+  }
+  ~TempWordList() { std::filesystem::remove(path_); }
+  std::string path() const { return path_.string(); }
+
+ private:
+  std::filesystem::path path_;
+};
 }  // namespace
 
 // Rule A: "th" is structurally dead by the 2nd letter (see
@@ -57,19 +81,9 @@ TEST(MixedScriptTrackerTest, RuleA_SlThenConsonantIsLatin) {
   EXPECT_EQ(tracker.latinRun(), "sla");
 }
 
-// Rule B: "ai" (a -> M consonant, i -> O vowel) keeps a live Bopomofo
-// shape the whole time, so once it matches a dictionary entry it is
-// genuinely ambiguous, not an immediate Latin verdict.
-TEST(MixedScriptTrackerTest, RuleB_DictionaryWordWithLiveShapeIsAmbiguous) {
-  LatinLexicon lexicon;
-  lexicon.rememberWord("ai");
-  MixedScriptTracker tracker(&lexicon);
-
-  EXPECT_EQ(tracker.feedKey(Standard(), 'a'), Verdict::kChinese);
-  EXPECT_EQ(tracker.feedKey(Standard(), 'i'), Verdict::kAmbiguous);
-  EXPECT_FALSE(tracker.isLatinLocked());
-}
-
+// Rule B: "app" (a -> M consonant, p -> EN vowel twice) keeps a live
+// Bopomofo shape the whole time, so once it matches a dictionary entry it
+// is genuinely ambiguous, not an immediate Latin verdict.
 TEST(MixedScriptTrackerTest, RuleB_ThreeLetterDictionaryWordIsAmbiguous) {
   LatinLexicon lexicon;
   lexicon.rememberWord("app");
@@ -80,27 +94,89 @@ TEST(MixedScriptTrackerTest, RuleB_ThreeLetterDictionaryWordIsAmbiguous) {
   EXPECT_EQ(tracker.feedKey(Standard(), 'p'), Verdict::kAmbiguous);
 }
 
-// Rule C: a trailing space after a dictionary-word run (rule B) promotes
-// the verdict to kLatin ("詞典＋空白→英文", 2026-09-09 decision); without
-// the trailing space it stays an ambiguous Chinese default.
-TEST(MixedScriptTrackerTest, RuleC_TrailingSpacePromotesAmbiguousToLatin) {
+// Two-letter runs never reach rule B, however good a dictionary word they
+// are: on the standard layout they are also complete tone-1 syllables
+// ("ai" = ㄇㄛ, "up" = ㄧㄣ, "el" = ㄍㄠ), and treating them as English
+// rewrote ordinary Chinese input. See kMinAmbiguousWordLength and
+// docs/REVIEW-P1-2026-09-10.md's B1.
+TEST(MixedScriptTrackerTest, TwoLetterDictionaryWordIsNeverAmbiguous) {
   LatinLexicon lexicon;
   lexicon.rememberWord("ai");
   MixedScriptTracker tracker(&lexicon);
+
+  EXPECT_EQ(tracker.feedKey(Standard(), 'a'), Verdict::kChinese);
+  EXPECT_EQ(tracker.feedKey(Standard(), 'i'), Verdict::kChinese);
+  EXPECT_EQ(tracker.onBoundary(/*isSpaceOrEnd=*/true), Verdict::kChinese);
+  EXPECT_FALSE(tracker.isLatinLocked());
+}
+
+// A trailing space commits a still-composable run as English only when the
+// word is in the *user's own* store (a word they previously picked by
+// hand). This is the 2026-09-10 replacement for the automatic
+// "詞典＋空白→英文" rule.
+TEST(MixedScriptTrackerTest, TrailingSpacePromotesAUserWordToLatin) {
+  LatinLexicon lexicon;
+  lexicon.rememberWord("app");  // rememberWord() == the user's own store.
+  MixedScriptTracker tracker(&lexicon);
   tracker.feedKey(Standard(), 'a');
-  tracker.feedKey(Standard(), 'i');
+  tracker.feedKey(Standard(), 'p');
+  tracker.feedKey(Standard(), 'p');
 
   EXPECT_EQ(tracker.onBoundary(/*isSpaceOrEnd=*/true), Verdict::kLatin);
 }
 
-TEST(MixedScriptTrackerTest, RuleC_NoTrailingSpaceStaysAmbiguous) {
+TEST(MixedScriptTrackerTest, TrailingSpaceLeavesABuiltinWordAmbiguous) {
   LatinLexicon lexicon;
-  lexicon.rememberWord("ai");
+  TempWordList builtin("app\n");
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(builtin.path()));
+  ASSERT_TRUE(lexicon.isWord("app"));
+  ASSERT_FALSE(lexicon.isUserWord("app"));
   MixedScriptTracker tracker(&lexicon);
   tracker.feedKey(Standard(), 'a');
-  tracker.feedKey(Standard(), 'i');
+  tracker.feedKey(Standard(), 'p');
+  tracker.feedKey(Standard(), 'p');
+
+  // Chinese by default, with the English form offered as a candidate --
+  // the space is how tone 1 is typed, so it cannot also mean "this was
+  // English" for every word in a 200k-entry list.
+  EXPECT_EQ(tracker.onBoundary(/*isSpaceOrEnd=*/true), Verdict::kAmbiguous);
+}
+
+TEST(MixedScriptTrackerTest, NoTrailingSpaceStaysAmbiguous) {
+  LatinLexicon lexicon;
+  lexicon.rememberWord("app");
+  MixedScriptTracker tracker(&lexicon);
+  tracker.feedKey(Standard(), 'a');
+  tracker.feedKey(Standard(), 'p');
+  tracker.feedKey(Standard(), 'p');
 
   EXPECT_EQ(tracker.onBoundary(/*isSpaceOrEnd=*/false), Verdict::kAmbiguous);
+}
+
+// A null lexicon (the app's state while the word lists are still loading
+// off the key thread) must leave rule A working and simply skip rules B/C.
+TEST(MixedScriptTrackerTest, NullLexiconStillRunsRuleA) {
+  MixedScriptTracker tracker(nullptr);
+
+  EXPECT_EQ(tracker.feedKey(Standard(), 't'), Verdict::kChinese);
+  EXPECT_EQ(tracker.feedKey(Standard(), 'h'), Verdict::kLatin);
+  EXPECT_EQ(tracker.onBoundary(/*isSpaceOrEnd=*/true), Verdict::kLatin);
+}
+
+TEST(MixedScriptTrackerTest, SetLexiconTakesEffectForLaterRuns) {
+  LatinLexicon lexicon;
+  lexicon.rememberWord("app");
+  MixedScriptTracker tracker(nullptr);
+
+  EXPECT_EQ(tracker.feedKey(Standard(), 'a'), Verdict::kChinese);
+  EXPECT_EQ(tracker.feedKey(Standard(), 'p'), Verdict::kChinese);
+  EXPECT_EQ(tracker.feedKey(Standard(), 'p'), Verdict::kChinese);
+  tracker.reset();
+
+  tracker.setLexicon(&lexicon);
+  EXPECT_EQ(tracker.feedKey(Standard(), 'a'), Verdict::kChinese);
+  EXPECT_EQ(tracker.feedKey(Standard(), 'p'), Verdict::kChinese);
+  EXPECT_EQ(tracker.feedKey(Standard(), 'p'), Verdict::kAmbiguous);
 }
 
 TEST(MixedScriptTrackerTest, RuleA_BoundaryAlwaysReportsLatinOnceLocked) {
@@ -175,15 +251,37 @@ TEST(MixedScriptTrackerTest, PopLastLatinCharShortensALockedRun) {
 
 TEST(MixedScriptTrackerTest, PopLastLatinCharResetsAnUnlockedRun) {
   LatinLexicon lexicon;
-  lexicon.rememberWord("ai");
+  lexicon.rememberWord("app");
   MixedScriptTracker tracker(&lexicon);
   tracker.feedKey(Standard(), 'a');
-  tracker.feedKey(Standard(), 'i');
+  tracker.feedKey(Standard(), 'p');
+  tracker.feedKey(Standard(), 'p');
   ASSERT_FALSE(tracker.isLatinLocked());
 
   tracker.popLastLatinChar();
   EXPECT_FALSE(tracker.hasPendingRun());
   EXPECT_FALSE(tracker.isLatinLocked());
+}
+
+// Backspacing a locked run all the way to empty has to drop the lock too,
+// or every following key stays English with no way out except Esc or a
+// non-letter key. See docs/REVIEW-P1-2026-09-10.md's B5.
+TEST(MixedScriptTrackerTest, PopLastLatinCharToEmptyClearsTheLock) {
+  LatinLexicon lexicon;
+  MixedScriptTracker tracker(&lexicon);
+  tracker.feedKey(Standard(), 't');
+  tracker.feedKey(Standard(), 'h');
+  ASSERT_TRUE(tracker.isLatinLocked());
+
+  tracker.popLastLatinChar();
+  EXPECT_TRUE(tracker.isLatinLocked());
+  tracker.popLastLatinChar();
+  EXPECT_FALSE(tracker.hasPendingRun());
+  EXPECT_FALSE(tracker.isLatinLocked());
+
+  // ...and the shape tracker is usable again for a fresh Chinese syllable.
+  EXPECT_EQ(tracker.feedKey(Standard(), 'g'), Verdict::kChinese);
+  EXPECT_EQ(tracker.feedKey(Standard(), 'l'), Verdict::kChinese);
 }
 
 TEST(IsAllAsciiLettersTest, AcceptsLettersOnly) {

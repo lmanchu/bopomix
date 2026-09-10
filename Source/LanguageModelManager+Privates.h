@@ -35,11 +35,17 @@ NS_ASSUME_NONNULL_BEGIN
 @property (class, readonly, nonatomic) McBopomofo::UserOverrideModel *userOverrideModel;
 @property (class, readonly, nonatomic) McBopomofo::VariantAnnotator *variantAnnotator;
 // P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md).
-// Loaded lazily on first access from the bundled latin-words.txt /
-// latin-tech-seed.txt plus the user's own latin-user.txt (same folder as
-// McBopomofo's user phrases -- see +latinUserWordListPath).
-@property (class, readonly, nonatomic) McBopomofo::MixedScript::LatinLexicon *latinLexicon;
+// The bundled latin-words.txt / latin-tech-seed.txt plus the user's own
+// latin-user.txt (same folder as McBopomofo's user phrases -- see
+// +latinUserWordListPath). The first access kicks off a background load
+// and returns nullptr; it keeps returning nullptr until that load
+// finishes, which callers must treat as "the Latin dictionary rules do
+// not apply yet" rather than as an error.
+@property (class, readonly, nullable, nonatomic) McBopomofo::MixedScript::LatinLexicon *latinLexicon;
 @property (class, readonly, nonatomic) NSString *latinUserWordListPath;
+// Creates the user data folder if needed, so appending to latin-user.txt
+// works on a machine that has never written a user phrase.
++ (BOOL)ensureLatinUserWordListFolder;
 @end
 
 NS_ASSUME_NONNULL_END

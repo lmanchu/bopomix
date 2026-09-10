@@ -37,6 +37,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -45,6 +46,7 @@
 #include "Mandarin/Mandarin.h"
 #include "McBopomofoLM.h"
 #include "MixedScript/latin_lexicon.h"
+#include "MixedScript/latin_passthrough_lm.h"
 #include "MixedScript/mixed_script_tracker.h"
 #include "UTF8Helper.h"
 #include "gramambular2/reading_grid.h"
@@ -197,20 +199,27 @@ int RunKeysMode(const std::shared_ptr<McBopomofoLM>& lm,
     // pending run's literal text as a single node via a fixed synthetic
     // reading in the same LatinPassthroughLM McBopomofoLM's unigram
     // dispatch merges in (see McBopomofoLM::setMixedScriptEnabled()).
-    auto commitLatinRun = [&]() {
-      std::string word = tracker.latinRun();
-      tracker.reset();
-      if (word.empty()) {
+    auto commitLatinText = [&](const std::string& text) {
+      if (text.empty()) {
         return;
       }
-      lm->mixedScriptLM().registerSoleEntry(kMixedScriptLatinKey, word);
+      lm->mixedScriptLM().registerSoleEntry(kMixedScriptLatinKey, text);
       if (!grid.insertReading(kMixedScriptLatinKey)) {
         ++uncomposable;  // Shouldn't happen; stay honest if it somehow does.
       }
       lm->mixedScriptLM().clearKey(kMixedScriptLatinKey);
     };
 
-    auto flush = [&](bool isSpaceOrEnd) {
+    auto commitLatinRun = [&]() {
+      std::string word = tracker.latinRun();
+      tracker.reset();
+      commitLatinText(word);
+    };
+
+    // `isSpaceKey` is true only for an actual space keystroke (not
+    // end-of-line), which is what decides whether a literal space follows
+    // the run -- mirroring KeyHandler.mm's _insertMixedScriptLiteralSpace.
+    auto flush = [&](bool isSpaceOrEnd, bool isSpaceKey) {
       if (buffer.isEmpty()) {
         return;
       }
@@ -225,27 +234,41 @@ int RunKeysMode(const std::shared_ptr<McBopomofoLM>& lm,
         // dictionary entry at all.
         buffer.clear();
         commitLatinRun();
+        if (isSpaceKey) {
+          commitLatinText(" ");
+        }
         return;
       }
 
       // Rule B: a dictionary word with a still-live shape registers a
       // Latin alternate at this exact reading *before* insertReading()
       // below, since ReadingGrid caches a node's unigrams immutably the
-      // instant it is created (see LatinPassthroughLM's class doc).
-      bool mixedScriptAmbiguous = lexicon != nullptr &&
-                                  tracker.hasPendingRun() &&
-                                  !tracker.isLatinLocked();
+      // instant it is created (see LatinPassthroughLM's class doc). The
+      // score mirrors KeyHandler.mm's: just under the reading's best
+      // existing unigram, so the English form is the candidate window's
+      // second row without changing what the walk picks.
+      bool mixedScriptAmbiguous =
+          lexicon != nullptr && !tracker.isLatinLocked() &&
+          tracker.onBoundary(/*isSpaceOrEnd=*/false) == Verdict::kAmbiguous;
       std::string mixedScriptWord = tracker.latinRun();
       if (mixedScriptAmbiguous) {
-        lm->mixedScriptLM().registerAlternate(reading, mixedScriptWord);
+        double topScore = std::numeric_limits<double>::lowest();
+        for (const auto& unigram : lm->getUnigrams(reading)) {
+          topScore = std::max(topScore, unigram.score());
+        }
+        lm->mixedScriptLM().registerAlternate(
+            reading, mixedScriptWord,
+            McBopomofo::MixedScript::LatinPassthroughLM::ScoreJustBelow(
+                topScore));
       }
 
       if (!grid.insertReading(reading)) {
         ++uncomposable;
       } else if (mixedScriptAmbiguous) {
-        // Rule C: a trailing space/end-of-line confirms rule B's
-        // dictionary word as English by default ("詞典＋空白→英文",
-        // 2026-09-09 decision).
+        // A trailing space/end-of-line commits the run as English only
+        // for words in the user's own lexicon (see
+        // MixedScriptTracker::onBoundary()); this harness never loads
+        // one, so in practice this never fires here.
         if (tracker.onBoundary(isSpaceOrEnd) == Verdict::kLatin) {
           size_t loc = grid.cursor() - 1;
           ReadingGrid::Candidate latinCandidate(reading, mixedScriptWord);
@@ -290,25 +313,34 @@ int RunKeysMode(const std::shared_ptr<McBopomofoLM>& lm,
         // its own handling below (this harness never sees backspace/Esc,
         // unlike KeyHandler.mm, so no exclusion is needed for those here).
         commitLatinRun();
+        if (rawKey == ' ') {
+          // The space that ended the run is a word separator, not a
+          // tone-1 trigger (there is no pending reading) -- KeyHandler.mm
+          // puts a literal space node in the grid here, so this does too.
+          commitLatinText(" ");
+          continue;
+        }
       }
 
       if (rawKey == ' ') {
-        // KeyHandler.mm:516 - space forces composition of a pending
+        // KeyHandler.mm - space forces composition of a pending
         // (typically tone-1, unmarked) reading. A space with an empty
         // buffer is not a printable character in McBopomofo's default
-        // bindings (chooseCandidateUsingSpace is on by default, so it would
-        // open a candidate window instead of committing a literal space);
-        // this harness has no candidate UI, so it is simply a no-op then.
-        flush(/*isSpaceOrEnd=*/true);
+        // bindings (chooseCandidateUsingSpace is on by default, so it
+        // opens the candidate window instead of committing a literal
+        // space); this harness has no candidate UI, so it is a no-op
+        // then. Only a space that ends a *Latin* run becomes a literal
+        // space, which is handled above and inside flush().
+        flush(/*isSpaceOrEnd=*/true, /*isSpaceKey=*/true);
         continue;
       }
 
       if (buffer.isValidKey(rawKey)) {
         buffer.combineKey(rawKey);
         if (buffer.hasToneMarker() && !buffer.hasToneMarkerOnly()) {
-          // KeyHandler.mm:512 - a tone key (with a consonant/vowel already
+          // KeyHandler.mm - a tone key (with a consonant/vowel already
           // present) immediately triggers composition, no space needed.
-          flush(/*isSpaceOrEnd=*/false);
+          flush(/*isSpaceOrEnd=*/false, /*isSpaceKey=*/false);
         }
         continue;
       }
@@ -317,7 +349,7 @@ int RunKeysMode(const std::shared_ptr<McBopomofoLM>& lm,
       // letters/digits/,./;-/space), but handled defensively: flush any
       // pending reading (mirrors the key not being consumed by the reading
       // buffer and falling through in KeyHandler.mm) and skip the key.
-      flush(/*isSpaceOrEnd=*/false);
+      flush(/*isSpaceOrEnd=*/false, /*isSpaceKey=*/false);
       std::cerr << "mixime-eval: warning: key '" << rawKey
                 << "' is not a standard-layout BPMF key; skipped\n";
     }
@@ -332,7 +364,7 @@ int RunKeysMode(const std::shared_ptr<McBopomofoLM>& lm,
     if (lexicon != nullptr && tracker.isLatinLocked()) {
       commitLatinRun();
     }
-    flush(/*isSpaceOrEnd=*/true);
+    flush(/*isSpaceOrEnd=*/true, /*isSpaceKey=*/false);
 
     const ReadingGrid::WalkResult walk = grid.walk();
     const std::string text = JoinValues(walk);

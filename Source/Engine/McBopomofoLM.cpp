@@ -194,13 +194,15 @@ McBopomofoLM::getUnigrams(const std::string& key) {
   // node for "丼" would dominate the walk.
   // P1 zh/en mixed typing: merge in any Latin passthrough/alternate
   // unigrams KeyHandler registered for this exact key (see
-  // MixedScript::LatinPassthroughLM's class doc). Appended after the
-  // normal unigrams and never boosted, so a rule-B/ambiguous Latin
-  // alternate's low score keeps Chinese as the Viterbi walk's default
-  // while still appearing in candidatesAt(); a rule-A synthetic key has no
-  // competing normal unigrams to begin with, so its (only) entry simply
-  // wins by being the only one. Skipped entirely when mixedScriptEnabled_
-  // is false, so that setting leaves this method's behavior unchanged.
+  // MixedScript::LatinPassthroughLM's class doc). Appended with whatever
+  // score the caller registered and never boosted here: a rule-B
+  // alternate is registered just *below* this reading's top Chinese
+  // unigram, which keeps Chinese as the Viterbi walk's default while
+  // putting the English form on the candidate window's second row; a
+  // rule-A synthetic key has no competing normal unigrams to begin with,
+  // so its (only) entry simply wins by being the only one. Skipped
+  // entirely when mixedScriptEnabled_ is false, so that setting leaves
+  // this method's behavior unchanged.
   if (mixedScriptEnabled_ && mixedScriptLM_.hasUnigrams(key)) {
     std::vector<Formosa::Gramambular2::LanguageModel::Unigram>
         mixedScriptUnigrams =

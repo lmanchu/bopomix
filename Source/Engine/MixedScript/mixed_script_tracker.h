@@ -39,19 +39,19 @@ enum class Verdict {
   // No English signal (yet). Caller keeps feeding the real
   // BopomofoReadingBuffer normally.
   kChinese,
-  // Rule A (BopomofoShapeTracker says the shape is dead) or rule B+C
-  // (dictionary word confirmed by a trailing space/end-of-input, decided
-  // by onBoundary()): this run is English. Once feedKey() returns kLatin,
-  // it keeps returning kLatin for the rest of the run (see
-  // MixedScriptTracker class doc on latinRun()).
+  // Rule A (BopomofoShapeTracker says the shape is dead), or a run that is
+  // a word in the *user's own* lexicon confirmed by a trailing
+  // space/end-of-input (decided by onBoundary()): this run is English.
+  // Once feedKey() returns kLatin, it keeps returning kLatin for the rest
+  // of the run (see MixedScriptTracker class doc on latinRun()).
   kLatin,
-  // Rule B only (dictionary word, shape still alive, no boundary
-  // confirmation yet): genuinely ambiguous. The caller does NOT stop
-  // feeding the real reading buffer -- this is not a request to abandon
-  // the Chinese path, just a signal to also register latinRun() as a
-  // lower-scored alternate candidate at the current reading (see
-  // LatinPassthroughLM). Only onBoundary(true) can promote this to
-  // kLatin.
+  // Rule B (dictionary word, shape still alive): genuinely ambiguous. The
+  // caller does NOT stop feeding the real reading buffer -- this is not a
+  // request to abandon the Chinese path, just a signal to also register
+  // latinRun() as a slightly-lower-scored alternate candidate at the
+  // current reading, i.e. the candidate window's second row (see
+  // LatinPassthroughLM). Only onBoundary(true) on a word the user has
+  // personally chosen before can promote this to kLatin.
   kAmbiguous,
 };
 
@@ -64,17 +64,28 @@ enum class Verdict {
 // tools/eval/README.md).
 class MixedScriptTracker {
  public:
-  // Rule B (dictionary-word) never fires below this length -- a bare
-  // "a"/"i" hijacking every Bopomofo key that happens to also be a
-  // one-letter English word would be far more disruptive than useful.
+  // Rule B (dictionary-word) never fires below this length. Two letters is
+  // far too short: on the standard layout every two-letter run is also an
+  // ordinary tone-1 syllable's full key sequence, and an exhaustive sweep
+  // of data.txt found 20 single-syllable tone-1 readings whose key
+  // sequence is a dictionary word ("up"=ㄧㄣ, "el"=ㄍㄠ, "ai"=ㄇㄛ,
+  // "zo"=ㄈㄟ...), 19 of them two letters long -- letting rule B fire on
+  // those cost 5.1 points of pure-Chinese accuracy for 13 of 385 English
+  // tokens (see docs/REVIEW-P1-2026-09-10.md's B1 and dimension 10).
   // Rule A (structural) is unaffected: it can fire at any length,
   // including 1, since it never consults the dictionary.
-  static constexpr size_t kMinAmbiguousWordLength = 2;
+  static constexpr size_t kMinAmbiguousWordLength = 3;
 
   // `lexicon` is not owned and must outlive this tracker (mirrors how
   // McBopomofoLM's other sub-language-models are owned by their parent).
+  // May be null, and may change between runs (the app loads the word
+  // lists off the key thread and publishes them when ready -- see
+  // LanguageModelManager's +latinLexicon); a null lexicon simply means
+  // rules B/C never fire and only rule A's structural check applies.
   explicit MixedScriptTracker(const LatinLexicon* lexicon)
       : lexicon_(lexicon) {}
+
+  void setLexicon(const LatinLexicon* lexicon) { lexicon_ = lexicon; }
 
   // Feeds one ASCII letter key, already confirmed by the caller to be a
   // valid Bopomofo key for `layout` (isValidKey()) -- callers are expected
@@ -84,13 +95,23 @@ class MixedScriptTracker {
                   char key);
 
   // Called when a run ends: a non-letter key, or end of input.
-  // `isSpaceOrEnd` is true for an actual space or end-of-input (rule C's
-  // trailing-space signal, per the 2026-09-09 decision "詞典＋空白→英文");
-  // false for any other boundary (e.g. a tone-marker key, or punctuation),
-  // which leaves a merely-ambiguous run as a Chinese default with a Latin
-  // candidate rather than auto-promoting it. Returns the final verdict.
-  // Does not clear latinRun() -- callers still need it to build the
-  // literal-text node/candidate; call reset() once done with it.
+  // `isSpaceOrEnd` is true for an actual space or end-of-input, false for
+  // any other boundary (a tone-marker key, punctuation...).
+  //
+  // A trailing space auto-commits the run as English only when it is a
+  // word in the user's *own* lexicon (LatinLexicon::isUserWord() -- a word
+  // this user has previously picked by hand). The 2026-09-09
+  // "詞典＋空白→英文" rule used the whole 200k built-in list here, which
+  // is fundamentally in conflict with how tone 1 is typed on this layout
+  // (space *is* the tone-1 key), so it rewrote ordinary Chinese: "up " no
+  // longer produced 因, "fu/ " no longer produced 清. Superseded
+  // 2026-09-10 (see docs/REVIEW-P1-2026-09-10.md's B1/B2); a run that is
+  // merely in the built-in dictionary now stays kAmbiguous, i.e. Chinese
+  // by default with the English form one Tab away.
+  //
+  // Returns the final verdict. Does not clear latinRun() -- callers still
+  // need it to build the literal-text node/candidate; call reset() once
+  // done with it.
   Verdict onBoundary(bool isSpaceOrEnd) const;
 
   // The literal ASCII text typed for the run so far, in the exact case the
@@ -111,8 +132,12 @@ class MixedScriptTracker {
   bool isLatinLocked() const { return latinLocked_; }
 
   // Undoes one character of the pending run, for backspace. If the run is
-  // already Latin-locked, this simply shortens latinRun() (rule A's
-  // verdict cannot become "un-decided" by removing a trailing character).
+  // already Latin-locked, this shortens latinRun() (rule A's verdict
+  // cannot become "un-decided" by removing a trailing character) -- and,
+  // when that empties the run, drops the lock too: there is no run left to
+  // be locked, and leaving latinLocked_ set would silently turn every
+  // following Bopomofo key into English until the user found a non-letter
+  // key to escape with (see docs/REVIEW-P1-2026-09-10.md's B5).
   // Otherwise -- a merely ambiguous or plain-Chinese run, still backed by
   // the real BopomofoReadingBuffer -- correctly rewinding
   // BopomofoShapeTracker's internal state would need full key-history

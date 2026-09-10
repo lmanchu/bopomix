@@ -35,6 +35,7 @@ if (ENABLE_TEST)
         add_executable(MixedScriptTest
                 bopomofo_shape_tracker_test.cpp
                 latin_lexicon_test.cpp
+                latin_passthrough_lm_test.cpp
                 mixed_script_tracker_test.cpp)
         target_link_libraries(MixedScriptTest GTest::gtest_main MixedScriptLib)
         include(GoogleTest)

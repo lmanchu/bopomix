@@ -43,25 +43,42 @@ namespace McBopomofo::MixedScript {
 //    prefixed keys), so it is the only unigram found and always wins.
 //  - Rule B (kAmbiguous): registerAlternate(existingReading, text, score)
 //    under the *same* reading the normal Chinese path already produced
-//    for the current syllable, with a score low enough that Chinese still
-//    wins the Viterbi walk by default, while still showing up as a
-//    candidatesAt() entry (see ReadingGrid::candidatesAt(), which sorts by
-//    score independently of insertion order).
+//    for the current syllable, with the score the caller gets from
+//    ScoreJustBelow(topUnigramScore) -- just under the reading's best
+//    Chinese unigram, so Chinese still wins the Viterbi walk by default
+//    but the English form lands on the candidate window's *second* row
+//    and is one Tab away.
+//
+//    How candidate order actually works (the reason a fixed -99 score was
+//    wrong -- see docs/REVIEW-P1-2026-09-10.md's N2):
+//    ReadingGrid::candidatesAt() stable_sorts the *nodes* overlapping the
+//    location by spanning length, longest first, and then emits each
+//    node's unigrams in the order that node holds them -- which, because
+//    ReadingGrid wraps the language model in ScoreRankedLanguageModel, is
+//    strictly descending by score. So a candidate's row within its own
+//    node is decided purely by its score, and -99 put the English form
+//    dead last, 50-70 Tab presses away for a common syllable.
 //
 // Entries are never written to disk: unlike LatinLexicon's user word list,
 // this only needs to last for the current composing session (the grid
 // itself is cleared on every commit), so there's nothing to persist here.
 class LatinPassthroughLM : public Formosa::Gramambular2::LanguageModel {
  public:
-  // Rule B/C's chosen score for candidates registered via
-  // registerAlternate() when the caller does not need a specific value --
-  // low enough that no real dictionary or user-phrase unigram this engine
-  // ships with is expected to score lower.
-  static constexpr double kAlternateScore = -99;
+  // How far below the reading's top unigram a rule-B alternate is placed.
+  // Small enough that nothing real can sit between the two (unigram
+  // scores in data.txt are log probabilities spaced far wider than this),
+  // large enough to survive double rounding.
+  static constexpr double kAlternateScoreEpsilon = 1e-4;
+
+  // The score to register a rule-B alternate with, given the highest
+  // score among the reading's existing (Chinese) unigrams.
+  static constexpr double ScoreJustBelow(double topUnigramScore) {
+    return topUnigramScore - kAlternateScoreEpsilon;
+  }
 
   void registerSoleEntry(const std::string& key, const std::string& value);
   void registerAlternate(const std::string& key, const std::string& value,
-                         double score = kAlternateScore);
+                         double score);
 
   // True if `value` was registered (via either method above) under `key`.
   // KeyHandler uses this at candidate-selection time (Tab or the candidate

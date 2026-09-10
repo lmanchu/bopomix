@@ -28,6 +28,8 @@
 #include "UTF8Helper.h"
 #include "AssociatedPhrasesV2.h"
 
+#include <atomic>
+
 @import OpenCCBridge;
 
 static const int kUserOverrideModelCapacity = 500;
@@ -38,7 +40,11 @@ static McBopomofo::McBopomofoLM gLanguageModelPlainBopomofo;
 static McBopomofo::UserOverrideModel gUserOverrideModel(kUserOverrideModelCapacity, kObservedOverrideHalflife);
 static McBopomofo::VariantAnnotator gVariantAnnotator;
 static McBopomofo::MixedScript::LatinLexicon gLatinLexicon;
-static BOOL gLatinLexiconLoaded = NO;
+// Written only by the one-shot background load below, and only *before*
+// gLatinLexiconReady is released; read only after acquiring that flag. See
+// LTLoadMixedScriptLexicon().
+static std::atomic<bool> gLatinLexiconReady { false };
+static BOOL gLatinLexiconLoadStarted = NO;
 
 static NSString *const kUserDataTemplateName = @"template-data";
 static NSString *const kUserDataPlainBopomofoTemplateName = @"template-data-plain-bpmf";
@@ -91,33 +97,49 @@ static void LTLoadVariantAnnotatorData()
 // does any work. This never touches gLanguageModelMcBopomofo's
 // mixedScriptEnabled_ flag -- KeyHandler flips that per
 // Preferences.mixedScriptEnabled, independent of whether the lexicon has
-// been loaded (loading is unconditional so the lexicon is warm the first
-// time it is actually needed).
+// been loaded.
+//
+// Loading is ~150 ms for 204k words, so it runs on a background queue
+// rather than on the key thread inside +loadDataModels (which
+// activateServer: calls, i.e. every time the user switches to this input
+// method). The synchronization is the plain publish pattern and needs no
+// lock: the background block is the only writer and it finishes every
+// write before releasing gLatinLexiconReady; +latinLexicon is the only
+// reader and hands out nothing until it has acquired that flag, so
+// callers see either "not available yet" or a fully-built lexicon.
+// MixedScriptTracker treats a null lexicon as "rules B/C do not apply",
+// which for the fraction of a second before this lands is exactly right.
 static void LTLoadMixedScriptLexicon()
 {
-    if (gLatinLexiconLoaded) {
+    if (gLatinLexiconLoadStarted) {
         return;
     }
-    gLatinLexiconLoaded = YES;
+    gLatinLexiconLoadStarted = YES;
 
     Class cls = NSClassFromString(@"McBopomofoInputMethodController");
     NSString *wordsPath = [[NSBundle bundleForClass:cls] pathForResource:@"latin-words" ofType:@"txt"];
-    if (wordsPath != nil) {
-        gLatinLexicon.loadBuiltinWordList(wordsPath.UTF8String);
-    } else {
+    NSString *techSeedPath = [[NSBundle bundleForClass:cls] pathForResource:@"latin-tech-seed" ofType:@"txt"];
+    if (wordsPath == nil) {
         NSLog(@"Error: No latin-words.txt found in bundle");
     }
-
-    NSString *techSeedPath = [[NSBundle bundleForClass:cls] pathForResource:@"latin-tech-seed" ofType:@"txt"];
-    if (techSeedPath != nil) {
-        gLatinLexicon.loadBuiltinWordList(techSeedPath.UTF8String);
-    } else {
+    if (techSeedPath == nil) {
         NSLog(@"Error: No latin-tech-seed.txt found in bundle");
     }
-
+    // Resolved here rather than in the block: it reads Preferences, which
+    // belongs on the main thread.
     NSString *userPath = [LanguageModelManager latinUserWordListPath];
-    gLatinLexicon.setUserWordListPath(userPath.UTF8String);
-    gLatinLexicon.loadUserWordList(userPath.UTF8String);
+
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        if (wordsPath != nil) {
+            gLatinLexicon.loadBuiltinWordList(wordsPath.UTF8String);
+        }
+        if (techSeedPath != nil) {
+            gLatinLexicon.loadBuiltinWordList(techSeedPath.UTF8String);
+        }
+        gLatinLexicon.setUserWordListPath(userPath.UTF8String);
+        gLatinLexicon.loadUserWordList(userPath.UTF8String);
+        gLatinLexiconReady.store(true, std::memory_order_release);
+    });
 }
 
 + (void)loadDataModels
@@ -500,7 +522,21 @@ static void LTLoadMixedScriptLexicon()
 + (McBopomofo::MixedScript::LatinLexicon *)latinLexicon
 {
     LTLoadMixedScriptLexicon();
+    if (!gLatinLexiconReady.load(std::memory_order_acquire)) {
+        return nullptr;
+    }
     return &gLatinLexicon;
+}
+
++ (BOOL)latinLexiconReady
+{
+    LTLoadMixedScriptLexicon();
+    return gLatinLexiconReady.load(std::memory_order_acquire) ? YES : NO;
+}
+
++ (BOOL)ensureLatinUserWordListFolder
+{
+    return [self checkIfUserDataFolderExists];
 }
 
 + (McBopomofo::McBopomofoLM *)languageModelMcBopomofo

@@ -34,10 +34,11 @@ mixime-eval --data <ResourcesDir> --mode {keys|readings|keyseq} [--layout standa
 
 `--mixed on` (P1, see `zhuyin-ime-personal.md`'s P1 design section) drives
 `keys` mode through the same `Source/Engine/MixedScript/` decision engine
-KeyHandler.mm uses for zh/en mixed typing -- rules A (structurally
-impossible Bopomofo shape), B (dictionary word), and C (a following
-space/end-of-line defaults a rule-B word to English). It is a no-op for
-`readings`/`keyseq`. Requires `--lexicon-dir <dir>` pointing at a directory
+KeyHandler.mm uses for zh/en mixed typing -- rule A (structurally
+impossible Bopomofo shape) and rule B (dictionary word, which only adds a
+Latin candidate; a trailing space promotes it to English only for words in
+the *user's own* lexicon, which this harness never loads). It is a no-op
+for `readings`/`keyseq`. Requires `--lexicon-dir <dir>` pointing at a directory
 with `latin-words.txt` and `latin-tech-seed.txt` (see `Source/Data/` and
 `tools/lexicon/build_lexicon.py`) -- e.g. `--lexicon-dir Source/Data`.
 Default is `off`, which reproduces this document's baseline byte-for-byte.
@@ -132,6 +133,32 @@ is already empty (tone-marked syllables clear it immediately) is a no-op in
 result for toned syllables while making tone-1 syllables round-trip
 correctly.
 
+**This is where the harness stops matching the real input method**, and it
+matters when reading the `keys` column as if it were a recording of
+someone typing. In the app, a space with an empty reading buffer is not a
+no-op: it opens the candidate window (`Preferences.chooseCandidateUsingSpace`
+is on by default). A person typing `dk3u3` never presses space between
+those two syllables -- the tone key already composed the first one. So the
+per-syllable delimiter spaces are an artifact of this file format, not
+keystrokes, and the app-path measurement in `BASELINE.md` normalizes them
+away (it drops a space that immediately follows a tone key, and keeps
+every other one: tone-1 composition triggers and the separators that end
+an English word). It reports the un-normalized numbers side by side so the
+difference stays visible.
+
+Two other divergences worth knowing about, both deliberate:
+
+- A space that ends a rule-A Latin run *does* become a literal space here,
+  matching `KeyHandler.mm`'s `_insertMixedScriptLiteralSpace`, so
+  `acer api` composes as `acer api` in both.
+- Everything else `KeyHandler` owns -- the candidate window, Esc,
+  backspace, force-commit, the user override model -- has no counterpart
+  here at all. Treat this tool as an engine regression check; the
+  acceptance measurement lives in
+  `McBopomofoTests/MixedScriptKeyHandlerTests.swift`
+  (`testEval200ThroughKeyHandler`), which types the same corpus into a
+  real `KeyHandler`.
+
 ## `build_corpus.py`
 
 Builds the 200-row zh/en mixed-typing eval corpus from a **private,
@@ -202,7 +229,10 @@ id  sentence  segments(JSON)  readings  keys  source
 - `keys`: every segment's standard-layout keys in order, space-separated
   (en segments are lowercased literal letters; zh segments come from
   `keyseq` mode, already space-separated per syllable). Feed this directly
-  to `mixime-eval --mode keys`.
+  to `mixime-eval --mode keys`. Note that the per-syllable spaces are a
+  format artifact, not keystrokes -- see "Why a space after every
+  syllable" above before feeding this column to anything that models the
+  real key handling.
 - `source`: `vault` (derived from Lman's own text, see Privacy) or
   `synthetic` (hand-written template, safe to publish).
 

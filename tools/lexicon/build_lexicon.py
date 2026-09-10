@@ -15,6 +15,12 @@ ACKNOWLEDGEMENTS.md for its license). Filtering:
     tail of compounds/technical Latin that are vanishingly unlikely to be
     typed as a Bopomofo-mode English run).
 
+The output is written in sorted order, and that is load-bearing, not
+cosmetic: LatinLexicon keeps its isPrefix() index ordered as the file
+loads, which is a linear merge for a pre-sorted file and a full sort
+otherwise. Emitting an unsorted list still works, it just moves ~200k
+words' worth of sorting into the load.
+
 No frequency/rank data is written -- this repo did not have a
 license-clear (MIT/CC0/public-domain) frequency-ranked English word list
 available to verify at the time this was built (per the P1 spec's
