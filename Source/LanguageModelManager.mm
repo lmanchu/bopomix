@@ -160,7 +160,13 @@ static void LTLoadMixedScriptLexicon()
     if (!gVariantAnnotator.loaded()) {
         LTLoadVariantAnnotatorData();
     }
-    LTLoadMixedScriptLexicon();
+    if (Preferences.mixedScriptEnabled) {
+        // Only warm the Latin word lists for users who actually turned
+        // mixed typing on; otherwise the first key handled with the
+        // feature enabled starts the load (see KeyHandler's mixedScript
+        // hook), and users who never enable it never pay for it.
+        LTLoadMixedScriptLexicon();
+    }
 }
 
 + (void)loadDataModel:(InputMode)mode
@@ -188,7 +194,13 @@ static void LTLoadMixedScriptLexicon()
             LTLoadVariantAnnotatorData();
         }
     }
-    LTLoadMixedScriptLexicon();
+    if (Preferences.mixedScriptEnabled) {
+        // Only warm the Latin word lists for users who actually turned
+        // mixed typing on; otherwise the first key handled with the
+        // feature enabled starts the load (see KeyHandler's mixedScript
+        // hook), and users who never enable it never pay for it.
+        LTLoadMixedScriptLexicon();
+    }
 }
 
 + (void)loadUserPhrasesWithPlainBopomofoEnabled:(BOOL)userPhraseForPlainBopomofo
