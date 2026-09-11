@@ -45,6 +45,11 @@ private let kKeepReadingUponCompositionError = "KeepReadingUponCompositionError"
 // AGENTS.md's Preferences convention.
 private let kMixedScriptEnabledKey = "MixedScriptEnabled"
 private let kMixedScriptLatinOnSpaceForUserWordsKey = "MixedScriptLatinOnSpaceForUserWords"
+// P3 English prediction + Tab completion (see zhuyin-ime-personal.md's F3
+// scope). Gated on kMixedScriptEnabledKey too (see KeyHandler's
+// _mixedScriptAvailable) -- this only decides whether completion runs on
+// top of an already-available mixedScript run.
+private let kLatinCompletionEnabledKey = "LatinCompletionEnabled"
 
 private let kCandidateTextFontName = "CandidateTextFontName"
 private let kCandidateKeyLabelFontName = "CandidateKeyLabelFontName"
@@ -242,6 +247,7 @@ class Preferences: NSObject {
             kCustomUserPhraseLocation,
             kMixedScriptEnabledKey,
             kMixedScriptLatinOnSpaceForUserWordsKey,
+            kLatinCompletionEnabledKey,
         ]
     }
 
@@ -355,6 +361,19 @@ class Preferences: NSObject {
     /// impossible Bopomofo shape) is unaffected either way.
     @UserDefault(key: kMixedScriptLatinOnSpaceForUserWordsKey, defaultValue: true)
     @objc static var mixedScriptLatinOnSpaceForUserWords: Bool
+
+    // MARK: P3 English prediction + Tab completion (see
+    // zhuyin-ime-personal.md's F3 scope)
+
+    /// Whether a Latin run shows a top-1 completion tooltip and Tab/
+    /// Shift+Tab accept/cycle it. Defaults to on (unlike
+    /// mixedScriptEnabled's P1 opt-in): with mixedScriptEnabled already
+    /// off, this preference is unreachable (see KeyHandler's
+    /// _mixedScriptAvailable), so it only ever takes effect for someone
+    /// who has already turned P1 on -- turning it off on top of that is
+    /// the opt-out, not the opt-in.
+    @UserDefault(key: kLatinCompletionEnabledKey, defaultValue: true)
+    @objc static var latinCompletionEnabled: Bool
 
     // MARK: Optional settings
 

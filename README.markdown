@@ -33,6 +33,38 @@ defaults write org.openvanilla.inputmethod.McBopomofo MixedScriptEnabled -bool f
 另一個開關 `MixedScriptLatinOnSpaceForUserWords`（預設開）控制上面最後那條
 「個人詞庫 + 空白 → 英文」的自動行為。
 
+### 英文即時預測與 Tab 補全（P3）
+
+在 mixedScript 打開的前提下（見上面），組字區顯示英文字母且長度達 2 個字母以上
+時，會在組字區下方顯示預測的完整詞加上 ⇥ 符號（例如打 `th` 會看到
+`throughput ⇥`）：
+
+- **Tab**：如果目前正在打的英文字母序列已能唯一判定成英文（例如上面提到的
+  `th`／`acer`），且有比目前打的字更長的字典詞，Tab 直接把整個詞補完，游標
+  停在詞尾，可以繼續往後打字。如果目前顯示的是中文（例如 `ell`／`app` 這種還
+  沒切到英文的情況），Tab 維持原本「切到英文」的行為；切過去之後如果那個英文
+  詞還有更長的補全，再按一次 Tab 就會繼續補完。沒有任何補全時 Tab 完全不動作
+  （行為與關掉這個功能時相同）。
+- **Shift+Tab**：開一個候選窗列出多個補全（數量跟目前設定的選字鍵數一樣多），
+  用平常選字的按鍵（預設 `123456789`）挑一個；候選窗開著的時候繼續打字母會直接
+  重新查詢、更新候選清單，不會像一般候選窗一樣被字母關掉；按 Esc 關掉候選窗、
+  回到還沒補完的原始字母。
+- 用 Tab 或候選窗接受的補全詞會計入個人詞庫 `latin-user.txt`（格式從純字改成
+  `詞<TAB>次數`，舊檔案沒有次數的行視為 1 次），下次同樣的前綴會優先排到最前
+  面；只有「接受」補全才會計次，單純看到預測 tooltip 不會。
+- 這個功能自己的開關是 `LatinCompletionEnabled`（**預設開**，但實際上要
+  `MixedScriptEnabled` 也開著才會生效）：
+
+  ```sh
+  defaults write org.openvanilla.inputmethod.McBopomofo LatinCompletionEnabled -bool false
+  ```
+
+- 基礎詞典（`Source/Data/latin-words.txt`）現在附帶粗略的常用度分級
+  （來自 SCOWL 的 size 分桶，見 `ACKNOWLEDGEMENTS.md`），排序優先序是
+  「個人詞庫（用過次數多的優先）＞ 手工科技詞表 `latin-tech-seed.txt`（依整理
+  順序）＞ 基礎詞典（依常用度）＞ 字母序」。這是粗粒度分級，不是逐字精確頻率——
+  沒有 SCOWL 資料的詞（多半是罕用／古字）仍然照字母序排在最後。
+
 ## 系統需求
 
 小麥注音輸入法可以在 macOS 13 以上版本運作。如果您要自行編譯小麥注音輸入法，或參與開發，您需要：

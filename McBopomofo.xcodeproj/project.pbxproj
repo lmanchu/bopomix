@@ -62,6 +62,7 @@
 		D4314F0D2ED3690F0071DD71 /* NumberInputHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4314F0C2ED369090071DD71 /* NumberInputHelper.swift */; };
 		D436E23F2CD20BA700C6155D /* AssociatedPhrasesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D436E23E2CD20B9E00C6155D /* AssociatedPhrasesTests.swift */; };
 		D4E5C211AAA0020000000000 /* MixedScriptKeyHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5C211AAA0010000000000 /* MixedScriptKeyHandlerTests.swift */; };
+		D4E5C212AAA0020000000000 /* LatinCompletionKeyHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5C212AAA0010000000000 /* LatinCompletionKeyHandlerTests.swift */; };
 		D43737C92DF9C35800D9707C /* InputMethodController+KeyHandlerDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43737C82DF9C35100D9707C /* InputMethodController+KeyHandlerDelegate.swift */; };
 		D43737CB2DF9C48300D9707C /* InputMethodController+CandidateControllerDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43737CA2DF9C48200D9707C /* InputMethodController+CandidateControllerDelegate.swift */; };
 		D43FC40B2B23788400ED5A1C /* InputMacro.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43FC40A2B23788400ED5A1C /* InputMacro.swift */; };
@@ -218,6 +219,7 @@
 		D4314F0C2ED369090071DD71 /* NumberInputHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberInputHelper.swift; sourceTree = "<group>"; };
 		D436E23E2CD20B9E00C6155D /* AssociatedPhrasesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssociatedPhrasesTests.swift; sourceTree = "<group>"; };
 		D4E5C211AAA0010000000000 /* MixedScriptKeyHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixedScriptKeyHandlerTests.swift; sourceTree = "<group>"; };
+		D4E5C212AAA0010000000000 /* LatinCompletionKeyHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatinCompletionKeyHandlerTests.swift; sourceTree = "<group>"; };
 		D43737C82DF9C35100D9707C /* InputMethodController+KeyHandlerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InputMethodController+KeyHandlerDelegate.swift"; sourceTree = "<group>"; };
 		D43737CA2DF9C48200D9707C /* InputMethodController+CandidateControllerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InputMethodController+CandidateControllerDelegate.swift"; sourceTree = "<group>"; };
 		D43FC40A2B23788400ED5A1C /* InputMacro.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputMacro.swift; sourceTree = "<group>"; };
@@ -553,6 +555,7 @@
 			children = (
 				D436E23E2CD20B9E00C6155D /* AssociatedPhrasesTests.swift */,
 				D4E5C211AAA0010000000000 /* MixedScriptKeyHandlerTests.swift */,
+				D4E5C212AAA0010000000000 /* LatinCompletionKeyHandlerTests.swift */,
 				D47D73A327A5D43900255A50 /* KeyHandlerBopomofoTests.swift */,
 				D4A8E43527A9E982002F7A07 /* KeyHandlerPlainBopomofoTests.swift */,
 				D485D3B82796A8A000657FF3 /* PreferencesTests.swift */,
@@ -827,6 +830,7 @@
 				D4A8E43627A9E982002F7A07 /* KeyHandlerPlainBopomofoTests.swift in Sources */,
 				D436E23F2CD20BA700C6155D /* AssociatedPhrasesTests.swift in Sources */,
 				D4E5C211AAA0020000000000 /* MixedScriptKeyHandlerTests.swift in Sources */,
+				D4E5C212AAA0020000000000 /* LatinCompletionKeyHandlerTests.swift in Sources */,
 				D449AD5F2B393C00000C5812 /* InputMacroTests.swift in Sources */,
 				D4C2A9872B4309D700113711 /* UTF8HelperTest.mm in Sources */,
 				D47D73A427A5D43900255A50 /* KeyHandlerBopomofoTests.swift in Sources */,

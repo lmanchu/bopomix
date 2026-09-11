@@ -55,6 +55,23 @@ extension McBopomofoInputMethodController: CandidateControllerDelegate {
         switch state {
         case let state as InputState.ChoosingCandidate:
             let selectedCandidate = state.candidates[Int(index)]
+
+            // P3 English prediction + Tab completion (see
+            // ~/.claude/plans/zhuyin-ime-personal.md's F3 scope): a pick
+            // from the completion candidate window is not a grid
+            // position fixNode(...) could override (see
+            // KeyHandler.h's acceptLatinCompletionWithValue: doc), so it
+            // is routed to its own acceptance path instead.
+            if selectedCandidate.reading == "_latin_completion_" {
+                keyHandler.acceptLatinCompletion(value: selectedCandidate.value)
+                guard let inputting = keyHandler.buildInputtingState() as? InputState.Inputting
+                else {
+                    return
+                }
+                handle(state: inputting, client: client)
+                return
+            }
+
             keyHandler.fixNode(
                 reading: selectedCandidate.reading, value: selectedCandidate.value,
                 originalCursorIndex: Int(state.originalCursorIndex),
