@@ -27,6 +27,7 @@
 #include <cctype>
 #include <cstddef>
 #include <fstream>
+#include <limits>
 #include <sstream>
 
 namespace McBopomofo::MixedScript {
@@ -71,6 +72,10 @@ bool LatinLexicon::loadBuiltinWordList(const std::string& path) {
   // file is relative to the file itself, so it is offset by whatever
   // range earlier-loaded files already claimed.
   const int rankOffsetForThisFile = nextBuiltinRank_;
+  // Remembering where each file's range starts is what lets sourceTier()
+  // recover a word's *in-file* rank (the dictionary's SCOWL tier) from
+  // the single merged rank scale.
+  builtinFileRankStarts_.push_back(rankOffsetForThisFile);
   std::string line;
   while (std::getline(file, line)) {
     if (!line.empty() && line.back() == '\r') {
@@ -203,6 +208,60 @@ int LatinLexicon::rank(const std::string& text) const {
   return -1;
 }
 
+int LatinLexicon::builtinTierForRank(int wordRank) const {
+  // The last range that starts at or before this rank is the file the
+  // word came from; ranks are assigned in load order, so the starts are
+  // already ascending.
+  size_t fileIndex = 0;
+  for (size_t i = 0; i < builtinFileRankStarts_.size(); ++i) {
+    if (wordRank < builtinFileRankStarts_[i]) {
+      break;
+    }
+    fileIndex = i;
+  }
+  if (fileIndex == 0) {
+    // The hand-ranked seed list: its internal 0..n ordering is a
+    // preference between seed terms, not a frequency tier, so the whole
+    // file is one level -- deliberately the *same* level as the
+    // dictionary's most frequent tier rather than ahead of it. See the
+    // header's sourceTier() doc.
+    return kBestSourceTier;
+  }
+  return kBestSourceTier +
+         (wordRank - builtinFileRankStarts_[fileIndex]);
+}
+
+int LatinLexicon::sourceTier(const std::string& text) const {
+  std::string lowerText = ToLowerAscii(text);
+  auto userIt = userWords_.find(lowerText);
+  if (userIt != userWords_.end() && userIt->second >= kUserWordConfirmedScore) {
+    return kConfirmedUserWordTier;
+  }
+  auto builtinIt = builtinRank_.find(lowerText);
+  if (builtinIt != builtinRank_.end()) {
+    return builtinTierForRank(builtinIt->second);
+  }
+  if (userIt != userWords_.end()) {
+    // An unconfirmed user word the dictionary does not know: a real word
+    // for isWord() purposes, but with no frequency evidence behind it, so
+    // it gets the worst tier rather than a made-up good one.
+    return kUnrankedSourceTier;
+  }
+  return kUnknownSourceTier;
+}
+
+int LatinLexicon::notePendingTypedWord(const std::string& word) {
+  if (word.empty()) {
+    return 0;
+  }
+  return ++pendingTypedWords_[ToLowerAscii(word)];
+}
+
+int LatinLexicon::pendingTypedWordSightings(const std::string& word) const {
+  auto it = pendingTypedWords_.find(ToLowerAscii(word));
+  return it == pendingTypedWords_.end() ? 0 : it->second;
+}
+
 std::vector<std::string> LatinLexicon::complete(const std::string& prefix,
                                                   size_t n) const {
   std::vector<std::string> results;
@@ -215,7 +274,7 @@ std::vector<std::string> LatinLexicon::complete(const std::string& prefix,
       [](const std::string* a, const std::string& b) { return *a < b; });
 
   struct Candidate {
-    int tier;             // 0 = user's own lexicon, 1 = everything else.
+    int tier;             // 0 = confirmed user word, 1 = everything else.
     long long secondary;  // Smaller is better within a tier.
     const std::string* word;
   };
@@ -229,12 +288,6 @@ std::vector<std::string> LatinLexicon::complete(const std::string& prefix,
       return a.secondary < b.secondary;
     }
     return *a.word < *b.word;
-  };
-  // The reverse relation, used to keep a fixed-size max-heap of "the
-  // current top-n candidates" whose front is always the single WORST of
-  // them -- the one an incoming candidate needs to beat to displace.
-  auto worse = [&better](const Candidate& a, const Candidate& b) {
-    return better(b, a);
   };
 
   std::vector<Candidate> best;
@@ -250,22 +303,39 @@ std::vector<std::string> LatinLexicon::complete(const std::string& prefix,
 
     Candidate candidate { 1, 0, &word };
     auto userIt = userWords_.find(word);
-    if (userIt != userWords_.end()) {
+    if (userIt != userWords_.end() && userIt->second >= kUserWordConfirmedScore) {
+      // Only a *confirmed* user word outranks the whole dictionary -- see
+      // the header's rememberWord()/complete() docs for why a score of 1
+      // (one passive sighting of a word the dictionary already knows) is
+      // deliberately not enough.
       candidate.tier = 0;
       candidate.secondary = -static_cast<long long>(userIt->second);
     } else {
       auto builtinIt = builtinRank_.find(word);
-      candidate.secondary =
-          builtinIt != builtinRank_.end() ? builtinIt->second : 0;
+      // An unconfirmed word with no builtin rank at all (only reachable
+      // from a hand-edited or pre-P3 user file: the learn-from-typing
+      // policy never writes a non-dictionary word below the confirmed
+      // score) sorts behind every ranked word rather than ahead of them,
+      // which is what a secondary of 0 used to mean.
+      candidate.secondary = builtinIt != builtinRank_.end()
+          ? builtinIt->second
+          : std::numeric_limits<long long>::max();
     }
 
+    // std::push_heap/pop_heap with comparator `comp` keep front() at the
+    // comp-MAXIMUM, so `better` (smaller is better) is what makes front()
+    // the worst of the current top-n -- the one an incoming candidate has
+    // to beat. Using the reversed relation here instead put the *best*
+    // candidate at front() and then popped it on every improvement, which
+    // discarded essentially everything scanned after the first n words
+    // (docs/REVIEW-P3-2026-09-11.md's B1).
     if (best.size() < n) {
       best.push_back(candidate);
-      std::push_heap(best.begin(), best.end(), worse);
-    } else if (worse(best.front(), candidate)) {
-      std::pop_heap(best.begin(), best.end(), worse);
+      std::push_heap(best.begin(), best.end(), better);
+    } else if (better(candidate, best.front())) {
+      std::pop_heap(best.begin(), best.end(), better);
       best.back() = candidate;
-      std::push_heap(best.begin(), best.end(), worse);
+      std::push_heap(best.begin(), best.end(), better);
     }
   }
 
@@ -301,18 +371,26 @@ void LatinLexicon::reset() {
   builtinRank_.clear();
   userWords_.clear();
   sortedWords_.clear();
+  pendingTypedWords_.clear();
+  builtinFileRankStarts_.clear();
   userWordListPath_.clear();
   nextBuiltinRank_ = 0;
 }
 
-bool LatinLexicon::rememberWord(const std::string& word) {
+bool LatinLexicon::rememberWord(const std::string& word, int weight) {
   if (word.size() < 2) {
     return true;
   }
+  if (weight < 1) {
+    weight = 1;
+  }
   std::string lowerWord = ToLowerAscii(word);
+  // It is a user word now, so whatever partial evidence was staged for it
+  // has been spent (see notePendingTypedWord()).
+  pendingTypedWords_.erase(lowerWord);
   auto existing = userWords_.find(lowerWord);
   if (existing == userWords_.end()) {
-    auto inserted = userWords_.emplace(lowerWord, 1).first;
+    auto inserted = userWords_.emplace(lowerWord, weight).first;
     if (builtinRank_.find(lowerWord) == builtinRank_.end()) {
       auto position =
           std::lower_bound(sortedWords_.begin(), sortedWords_.end(), lowerWord,
@@ -322,7 +400,7 @@ bool LatinLexicon::rememberWord(const std::string& word) {
       sortedWords_.insert(position, &(inserted->first));
     }
   } else {
-    existing->second += 1;
+    existing->second += weight;
   }
 
   // The word (and its up-to-date count) is already live in memory either

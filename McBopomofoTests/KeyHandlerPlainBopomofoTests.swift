@@ -27,22 +27,22 @@ import XCTest
 
 class KeyHandlerPlainBopomofoTests: XCTestCase {
 
-    var savedKeyboardLayout: KeyboardLayout = .standard
     var handler = KeyHandler()
 
     override func setUpWithError() throws {
+        // Must come before the first Preferences write, and is the only
+        // restore mechanism in this class -- see
+        // LatinCompletionKeyHandlerTests.setUpWithError and
+        // docs/REVIEW-P3-2026-09-11.md's N4 for why writing saved values
+        // back in tearDownWithError was not enough.
+        PreferenceSandbox.install(on: self)
+
         LanguageModelManager.loadDataModels()
         handler = KeyHandler()
         handler.inputMode = .plainBopomofo
 
-        savedKeyboardLayout = Preferences.keyboardLayout
-
         // Punctuation-related tests only work when the layout is Standard.
         Preferences.keyboardLayout = KeyboardLayout.standard
-    }
-
-    override func tearDownWithError() throws {
-        Preferences.keyboardLayout = savedKeyboardLayout
     }
 
     // Regression test for #292.

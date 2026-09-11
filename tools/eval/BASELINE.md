@@ -138,7 +138,7 @@ genuinely do not cover it, or there is a bug -- see the category column.
 | h | 1 | 規則錯判／未命中詞典（獨立測試也失敗，需人工檢視） |
 | zz | 1 | 規則錯判／未命中詞典（獨立測試也失敗，需人工檢視） |
 
-## P1 round 2 -- app path (real KeyHandler), 2026-09-11
+## P1 round 2 -- app path (real KeyHandler), 2026-09-12
 
 Produced by `MixedScriptKeyHandlerTests.testEval200ThroughKeyHandler`
 (`xcodebuild -scheme McBopomofo test`), typing each corpus row's
@@ -163,7 +163,7 @@ visible so the difference is not hidden.
 | F1 row-level (all tokens kept) | 167/200 = 83.5% | 160/200 = 80.0% |
 | zh accuracy within the mixed sentence | 3901/4586 = 85.1% | 1845/4586 = 40.2% |
 | rows with a zh length mismatch | 37/200 | 146/200 |
-| latency per row (avg / p50 / p95 / max) | 6472us / 6471us / 11317us / 14902us | 8196us / 8046us / 13882us / 19147us |
+| latency per row (avg / p50 / p95 / max) | 6513us / 6660us / 10955us / 14982us | 8307us / 8178us / 14297us / 19474us |
 
 ### Pure-Chinese control: does turning this on damage normal typing?
 
@@ -178,7 +178,7 @@ while the harness's own F2 number stayed flat, because F2's
 |---|---|---|
 | **zh character accuracy** | **4369/4586 = 95.3%** | 4369/4586 = 95.3% |
 | rows with a zh length mismatch | 1/200 | 1/200 |
-| latency per row (avg / p50 / p95 / max) | 5181us / 5289us / 9261us / 13228us | 5118us / 5092us / 9168us / 14861us |
+| latency per row (avg / p50 / p95 / max) | 5295us / 5387us / 9468us / 13820us | 5039us / 5090us / 8879us / 13127us |
 
 Note that the "zh accuracy within the mixed sentence" row in the
 first table is *not* comparable to 95.3%: it is measured on
@@ -187,7 +187,7 @@ English run legitimately breaks the phrase context around it,
 and its own no-mixed-typing counterpart is 56.2%. The
 pure-Chinese control above is the like-for-like number.
 
-## P3 -- English prediction + Tab completion, 2026-09-11
+## P3 -- English prediction + Tab completion, 2026-09-12
 
 Produced by `LatinCompletionKeyHandlerTests.testEval200LatinCompletion`
 (`xcodebuild -scheme McBopomofo test`). For every eval200 English
@@ -201,39 +201,62 @@ order and, after evaluating each row, teaches its eligible
 tokens into the user lexicon the same way
 Preferences.latinLearnTypedWords does in production, so a
 word's second occurrence should complete sooner than its first.
-"never completable" tokens are further split into: proper
-noun/abbreviation (uppercase in the source, or missing from the
-dictionary entirely), inflected form (a suffix-stripped lemma
-guess is a dictionary word but the exact form typed is not --
-P3 fix #1's SCOWL-sourced word list, which includes inflected
-forms directly, should keep this near 0), and other (a real
-dictionary word that never ranked top-1 at any tested prefix --
-a ranking artifact, not a missing word).
+
+"never completable" tokens are split by asking the dictionary
+first and only then looking at how the token was written:
+**ranking miss** (the lowercase form is a dictionary word that
+never ranked top-1 at any tested prefix -- a different,
+better-ranked word owns every prefix), **inflected form** (a
+suffix-stripped lemma guess is a dictionary word but the exact
+form typed is not -- P3 fix #1's SCOWL-sourced word list, which
+includes inflected forms directly, keeps this near 0), and
+**not in the dictionary** (a genuine vocabulary gap: a name, an
+acronym, a product).
+
+That order is a correction (docs/REVIEW-P3-2026-09-11.md's N2).
+The earlier split short-circuited on "does the token contain an
+uppercase letter", which filed 61 tokens -- `API`, `App`,
+`Apple`, `Blog`, `CLI`, `Games`, `Meet`, `Steam`, `Story`,
+`This`, `Tool` and friends -- as vocabulary gaps when their
+lowercase forms are ordinary dictionary entries. The simulation
+types `lowercased()` anyway, so casing says nothing about
+whether the lookup could have succeeded. Corrected, **62% of
+never-completable tokens are ranking misses, not missing
+words** (96/155 cold, 83/135 with history), which points P4 at
+a real frequency source rather than at a bigger dictionary.
+
+The small drop against the previous run (40.6% -> 40.3% within
+four letters, 154 -> 155 never completable) is P3 fix #3's
+tightened "already a finished word" gate: a run that is itself a
+finished word now shows no prediction at all, so a token whose
+prefix passes through one (`code` on the way to `codes`) has to
+be typed one letter further. That is the intended trade -- the
+alternative was Tab rewriting `code` into `codesign`.
 
 ### No history
 
 | metric | value |
 |---|---|
 | completable within 2 letters | 53/330 = 16.1% |
-| completable within 3 letters | 89/330 = 27.0% |
-| completable within 4 letters | 134/330 = 40.6% |
-| never completable | 154/330 = 46.7% |
-|  - proper noun / abbreviation (uppercase in source, or not in the dictionary at all) | 120 |
-|  - inflected form (lemma in the dictionary, inflected form is not) | 0 |
-|  - other (a dictionary word, but never ranked top-1 at any tested prefix) | 34 |
-| average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | 0.78 |
+| completable within 3 letters | 82/330 = 24.8% |
+| completable within 4 letters | 133/330 = 40.3% |
+| never completable | 155/330 = 47.0% |
+|  - ranking miss (in the dictionary, never ranked top-1 at any tested prefix) | 96 |
+|  - inflected form (lemma in the dictionary, inflected form is not) | 1 |
+|  - not in the dictionary (name, acronym, product) | 58 |
+| average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | 0.76 |
 
 ### With history (learning applied between rows)
 
 | metric | value |
 |---|---|
 | completable within 2 letters | 60/330 = 18.2% |
-| completable within 3 letters | 107/330 = 32.4% |
+| completable within 3 letters | 105/330 = 31.8% |
 | completable within 4 letters | 161/330 = 48.8% |
 | never completable | 135/330 = 40.9% |
-|  - proper noun / abbreviation (uppercase in source, or not in the dictionary at all) | 101 |
-|  - inflected form (lemma in the dictionary, inflected form is not) | 0 |
-|  - other (a dictionary word, but never ranked top-1 at any tested prefix) | 34 |
+|  - ranking miss (in the dictionary, never ranked top-1 at any tested prefix) | 83 |
+|  - inflected form (lemma in the dictionary, inflected form is not) | 1 |
+|  - not in the dictionary (name, acronym, product) | 51 |
 | average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | 0.94 |
 
 ### Pure-Chinese control: ON vs OFF, character by character

@@ -54,11 +54,18 @@ This shells out to <scowl-repo>/scowl (SCOWL's own query CLI) once per
 SCOWL schema change stays compatible without this script needing to track
 it. Each call runs `./scowl --db scowl.db word-list SIZE A 1
 --categories=` -- American spelling ("A"), variant level <=1 (mainstream
-spellings only, no "uncommon"/"archaic" variants), no extra categories
-(proper names, hacker slang, etc. are all separate SCOWL categories this
-deliberately does not request -- see ACKNOWLEDGEMENTS.md's note on why the
-general Copyright-file grant is enough without also triggering its
-AU/UKACD-specific clauses).
+spellings only, no "uncommon"/"archaic" variants), and no *additional*
+categories requested, which is what keeps ESDB's AU/UKACD-specific
+clauses untriggered (see ACKNOWLEDGEMENTS.md).
+
+"No additional categories" is not the same as "no proper names", and the
+output makes that plain: `thad`, `thaddeus`, `thai`, `thailand`,
+`aachen`, `aaliyah`, `obama`, `taiwan` and friends are all in the base
+word list SCOWL returns for these sizes, and they are a real part of why
+so many prefixes complete to something nobody typed
+(docs/REVIEW-P3-2026-09-11.md's N1). Filtering them out needs a category
+query this script does not make yet; until then the tier data, not the
+membership, is the thing to fix.
 
 Source/Data/latin-tech-seed.txt's hand-picked, explicitly-ranked terms
 still take priority over this file: LanguageModelManager loads it *before*
@@ -140,6 +147,15 @@ def build(
             "frequency-tier rank (0-" + str(len(tier_sizes) - 1) + "). Do not "
             "hand-edit; see the docstring for filtering rules and "
             "ACKNOWLEDGEMENTS.md for the source's license.\n"
+            # The grant ESDB's Copyright file makes for word lists
+            # created from the database asks for the copyright notice to
+            # appear "in all copies", so it travels with the generated
+            # file itself rather than only living in ACKNOWLEDGEMENTS.md
+            # (docs/REVIEW-P3-2026-09-11.md's N16).
+            "# Copyright 2000-2026 by Kevin Atkinson. See "
+            "ACKNOWLEDGEMENTS.md for the\n"
+            "# full grant, which explicitly covers word lists created "
+            "from the database.\n"
         )
         for word in sorted_words:
             f.write(f"{word}\t{tiers[word]}\n")

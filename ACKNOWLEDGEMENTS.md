@@ -11,7 +11,7 @@
 
 `Source/Data/latin-words.txt`（中英混打詞典本體＋詞頻分級，見
 `tools/lexicon/build_lexicon.py`）2026-09-11 起完全衍生自 **SCOWL /
-ESDB**（English Speller Database，原名 Spell Checker Oriented Word Lists；
+ESDB**（English Speller Database，原名 Spell Checker Originated Word Lists；
 https://github.com/en-wl/wordlist ，作者 Kevin Atkinson）size ≤70 的
 American-English、variant level ≤1 詞表累積輸出（`./scowl --db scowl.db
 word-list <35|40|50|60|70> A 1 --categories=`），只取「一個詞第一次出現在

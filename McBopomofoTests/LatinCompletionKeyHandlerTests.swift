@@ -47,38 +47,31 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
 
     var handler = KeyHandler()
 
-    private var savedKeyboardLayout: KeyboardLayout = .standard
-    private var savedMixedScriptEnabled = false
-    private var savedLatinCompletionEnabled = true
-    private var savedLatinOnSpaceForUserWords = true
-    private var savedAssociatedPhrasesEnabled = false
-    private var savedChineseConversionEnabled = false
-    private var savedEscToCleanInputBuffer = false
-    private var savedKeepReadingUponCompositionError = false
-    private var savedChooseCandidateUsingSpace = true
-    private var savedCandidateKeys = "123456789"
-    private var savedUseCustomUserPhraseLocation = false
-    private var savedCustomUserPhraseLocation = ""
     private var temporaryUserDataFolder: URL?
 
     // Rolling state for the typing helpers below.
     private var state: InputState = InputState.Empty()
+    /// Every state the handler emitted, Committing included -- what
+    /// InputMethodController would call `previous`. See send(...).
+    private var lastState: InputState = InputState.Empty()
     private var committedText = ""
     private var errorCount = 0
 
     override func setUpWithError() throws {
-        savedKeyboardLayout = Preferences.keyboardLayout
-        savedMixedScriptEnabled = Preferences.mixedScriptEnabled
-        savedLatinCompletionEnabled = Preferences.latinCompletionEnabled
-        savedLatinOnSpaceForUserWords = Preferences.mixedScriptLatinOnSpaceForUserWords
-        savedAssociatedPhrasesEnabled = Preferences.associatedPhrasesEnabled
-        savedChineseConversionEnabled = Preferences.chineseConversionEnabled
-        savedEscToCleanInputBuffer = Preferences.escToCleanInputBuffer
-        savedKeepReadingUponCompositionError = Preferences.keepReadingUponCompositionError
-        savedChooseCandidateUsingSpace = Preferences.chooseCandidateUsingSpace
-        savedCandidateKeys = Preferences.candidateKeys
-        savedUseCustomUserPhraseLocation = Preferences.useCustomUserPhraseLocation
-        savedCustomUserPhraseLocation = Preferences.customUserPhraseLocation
+        // Must come before the first Preferences write: every assignment
+        // below goes straight into the real
+        // org.openvanilla.inputmethod.McBopomofo defaults domain, and this
+        // is the only thing that puts it back -- including removing keys
+        // the assignments *created* on a machine that never had them, and
+        // including when a test below fails part-way through (see
+        // PreferenceSandbox, docs/REVIEW-P3-2026-09-11.md's N4).
+        //
+        // Deliberately the *only* restore mechanism here: the previous
+        // per-property save-and-write-back in tearDownWithError ran after
+        // this block (XCTest runs teardown blocks first) and so put
+        // UseCustomUserPhraseLocation / CustomUserPhraseLocation back into
+        // a plist that had neither, every single run.
+        PreferenceSandbox.install(on: self)
 
         Preferences.keyboardLayout = .standard
         Preferences.mixedScriptEnabled = true
@@ -102,6 +95,11 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         try FileManager.default.createDirectory(
             at: folder, withIntermediateDirectories: true)
         temporaryUserDataFolder = folder
+        // Removed through a teardown block, not tearDownWithError, so a
+        // failing test does not leave the folder behind in $TMPDIR.
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: folder)
+        }
         Preferences.useCustomUserPhraseLocation = true
         Preferences.customUserPhraseLocation = folder.path
 
@@ -119,23 +117,10 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        Preferences.keyboardLayout = savedKeyboardLayout
-        Preferences.mixedScriptEnabled = savedMixedScriptEnabled
-        Preferences.latinCompletionEnabled = savedLatinCompletionEnabled
-        Preferences.mixedScriptLatinOnSpaceForUserWords = savedLatinOnSpaceForUserWords
-        Preferences.associatedPhrasesEnabled = savedAssociatedPhrasesEnabled
-        Preferences.chineseConversionEnabled = savedChineseConversionEnabled
-        Preferences.escToCleanInputBuffer = savedEscToCleanInputBuffer
-        Preferences.keepReadingUponCompositionError = savedKeepReadingUponCompositionError
-        Preferences.chooseCandidateUsingSpace = savedChooseCandidateUsingSpace
-        Preferences.candidateKeys = savedCandidateKeys
-        Preferences.useCustomUserPhraseLocation = savedUseCustomUserPhraseLocation
-        Preferences.customUserPhraseLocation = savedCustomUserPhraseLocation
-
-        if let folder = temporaryUserDataFolder {
-            try? FileManager.default.removeItem(at: folder)
-            temporaryUserDataFolder = nil
-        }
+        // Preferences are restored by PreferenceSandbox and the throwaway
+        // folder by its own teardown block -- both installed in
+        // setUpWithError, both of which run even when a test fails.
+        temporaryUserDataFolder = nil
     }
 
     /// The Latin word lists load on a background queue (see
@@ -156,6 +141,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     private func resetSession() {
         handler.clear()
         state = InputState.Empty()
+        lastState = InputState.Empty()
         committedText = ""
         errorCount = 0
     }
@@ -169,6 +155,31 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
             inputText: text, keyCode: keyCode, charCode: charCode, flags: flags,
             isVerticalMode: false)
         return handler.handle(input: input, state: state) { newState in
+            // InputMethodController commits the *previous* state's
+            // composing buffer on the way into Empty (but not
+            // EmptyIgnoringPreviousState) -- see its
+            // handle(state:previous:client:) overload for Empty. Modelled
+            // here so tests can see text that reaches the application
+            // that way as well as through an explicit Committing state;
+            // without it "the composing buffer vanished" and "the
+            // composing buffer was committed" look identical from inside
+            // this harness, which is how docs/REVIEW-P3-2026-09-11.md's
+            // B4 measured an empty commit for a run that a real client
+            // would have received.
+            //
+            // `lastState` tracks *every* state, Committing included,
+            // exactly as InputMethodController.handle(state:client:)
+            // does: an Enter emits Committing then Empty, and treating
+            // the pre-Committing Inputting state as Empty's predecessor
+            // would count the same text twice.
+            if newState is InputState.Empty,
+                !(newState is InputState.EmptyIgnoringPreviousState),
+                let previous = self.lastState as? InputState.NotEmpty
+            {
+                self.committedText += previous.composingBuffer
+            }
+            self.lastState = newState
+
             if let committing = newState as? InputState.Committing {
                 self.committedText += committing.poppedText
             }
@@ -203,12 +214,36 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         send(" ", charCode: 0, keyCode: KeyCode.tab.rawValue)
     }
 
-    private func pressShiftTab() {
+    @discardableResult
+    private func pressShiftTab() -> Bool {
         send(" ", charCode: 0, keyCode: KeyCode.tab.rawValue, flags: .shift)
+    }
+
+    /// Upstream's "force English, uppercase" gesture: Shift plus a letter,
+    /// which arrives with the *uppercase* charCode.
+    @discardableResult
+    private func pressShiftLetter(_ letter: String) -> Bool {
+        let upper = letter.uppercased()
+        return send(upper, charCode: charCode(upper), flags: .shift)
     }
 
     private var composingBuffer: String {
         (state as? InputState.NotEmpty)?.composingBuffer ?? ""
+    }
+
+    /// Everything the learn-from-typing / accept paths have written to
+    /// this test's throwaway latin-user.txt, as word -> score.
+    private var learnedLatinWords: [String: Int] {
+        let path = temporaryUserDataFolder!
+            .appendingPathComponent("latin-user.txt").path
+        let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        var result: [String: Int] = [:]
+        for line in text.split(separator: "\n") {
+            let fields = line.split(separator: "\t")
+            guard let word = fields.first else { continue }
+            result[String(word)] = fields.count > 1 ? Int(fields[1]) ?? 1 : 1
+        }
+        return result
     }
 
     private var tooltip: String {
@@ -270,7 +305,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     }
 
     /// P3 fix #3 (see ~/.claude/plans/zhuyin-ime-personal.md's P3 fix #3
-    /// and KeyHandler's _isAlreadyCompleteWord:): once a pending run is
+    /// and KeyHandler's _offeredCompletionFor:lexicon:): once a pending run is
     /// itself already a recognized word ranked at least as well as the
     /// best longer completion sharing its prefix, that counts as "the
     /// user finished typing this word" -- no prediction tooltip, and
@@ -538,6 +573,333 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         XCTAssertEqual(predictedCompletion, chosenWord)
     }
 
+    // MARK: - B1: the candidate window lists genuinely common words
+
+    /// docs/REVIEW-P3-2026-09-11.md's B1. `complete()`'s top-n heap kept
+    /// the wrong end of itself, so everything below the first row was
+    /// whatever happened to be alphabetically first: Shift+Tab on "th"
+    /// offered `thad / thaddeus / thai / thailand`, not `than / thank /
+    /// that`. The engine-level regression lives in
+    /// LatinLexiconTest.CompleteMatchesAFullSortForEveryPrefixAndN; this
+    /// pins the user-visible end of it on the real bundled dictionary.
+    ///
+    /// Asserted as "every one of the first three rows is a word a person
+    /// actually types" rather than a hard-coded list, because the exact
+    /// words depend on the SCOWL tier data (see this file's word-choice
+    /// note). A proper-noun/obscure row like "thaddeus" or "thailander"
+    /// is precisely what the bug produced, so a common-word membership
+    /// test is what distinguishes fixed from broken.
+    ///
+    /// Only prefixes with enough *ranking* signal to sort by can be held
+    /// to this: see testShiftTabOnAPrefixWithNoRankingSignal below for
+    /// what the bundled dictionary can and cannot do, and why that is a
+    /// separate (N1) problem from this one.
+    func testShiftTabListsCommonWordsNotAlphabeticalDebris() {
+        let commonWordsByPrefix = [
+            "th": Set([
+                "than", "thank", "thanks", "that", "the", "their", "them", "then",
+                "there", "these", "they", "thing", "things", "think", "this",
+                "those", "though", "thought", "thread", "three", "through",
+                "throughput", "throttle",
+            ]),
+            "pr": Set([
+                "practical", "practice", "present", "press", "pretty", "price",
+                "primary", "print", "private", "probably", "problem", "process",
+                "produce", "product", "production", "profile", "program",
+                "progress", "project", "promise", "prompt", "proper", "protect",
+                "provide", "provisioning", "proxy",
+            ]),
+        ]
+
+        for (prefix, commonWords) in commonWordsByPrefix {
+            resetSession()
+            type(prefix)
+            pressShiftTab()
+            guard let choosing = state as? InputState.ChoosingCandidate else {
+                XCTFail("\(prefix): expected a completion candidate window, got: \(state)")
+                continue
+            }
+            let top3 = choosing.candidates.prefix(3).map { $0.value }
+            XCTAssertEqual(top3.count, 3, "\(prefix): \(choosing.candidates.map { $0.value })")
+            for candidate in top3 {
+                XCTAssertTrue(
+                    commonWords.contains(candidate),
+                    "\(prefix): \"\(candidate)\" is not a common word. "
+                        + "Top rows were \(top3); full list "
+                        + "\(choosing.candidates.map { $0.value })")
+            }
+        }
+    }
+
+    /// The honest limit of the B1 fix, pinned so nobody mistakes it for a
+    /// regression later. "wh" has exactly one ranked completion (the tech
+    /// seed's "whatsapp"); `whack`, `whale`, `what`, `when`, `where` and
+    /// `which` are *all* SCOWL tier 0, so once the seed term is placed
+    /// there is no data left to order them by and rows 2+ are whatever
+    /// comes first alphabetically. That is
+    /// docs/REVIEW-P3-2026-09-11.md's N1 (five coarse tiers over 141,697
+    /// words, 38,784 of them in tier 0), not B1: the ordering is now
+    /// provably the true top-n (LatinLexiconTest's
+    /// CompleteMatchesAFullSortForEveryPrefixAndN), the ranking data is
+    /// simply blind here. Fixing it needs a real frequency source, which
+    /// is P4 work.
+    func testShiftTabOnAPrefixWithNoRankingSignal() {
+        type("wh")
+        pressShiftTab()
+        guard let choosing = state as? InputState.ChoosingCandidate else {
+            XCTFail("expected a completion candidate window, got: \(state)")
+            return
+        }
+        let values = choosing.candidates.map { $0.value }
+        XCTAssertEqual(
+            values.first, "whatsapp",
+            "the one ranked completion must still come first: \(values)")
+        // Everything after the ranked row is a single alphabetical run --
+        // the shape a tier-0 tie produces. If a real frequency source ever
+        // lands, this assertion is the one that should start failing.
+        let rest = Array(values.dropFirst())
+        XCTAssertEqual(rest, rest.sorted(), "expected an alphabetical tail, got \(values)")
+    }
+
+    // MARK: - B3: a finished word is not grown into something else
+
+    /// docs/REVIEW-P3-2026-09-11.md's B3. The gate used to compare raw
+    /// rank(), and every hand-ranked tech-seed term outranks every
+    /// dictionary word, so finishing an ordinary English word and
+    /// pressing Tab rewrote it: code -> codesign, test -> testflight,
+    /// and "run" permanently advertised "runway". These five are the
+    /// exact cases the review reproduced.
+    func testTabLeavesAFinishedWordAloneEvenWhenASeedTermExtendsIt() throws {
+        for word in ["code", "test", "run", "the", "acer"] {
+            resetSession()
+            type(word)
+            XCTAssertEqual(composingBuffer, word)
+            XCTAssertNil(
+                predictedCompletion,
+                "\(word): a finished word must not advertise a completion: \(state)")
+            pressTab()
+            XCTAssertEqual(composingBuffer, word, "Tab must not grow \"\(word)\"")
+            XCTAssertFalse(state is InputState.ChoosingCandidate, "\(state)")
+
+            resetSession()
+            type(word)
+            pressShiftTab()
+            XCTAssertFalse(
+                state is InputState.ChoosingCandidate,
+                "\(word): Shift+Tab must not offer completions either: \(state)")
+        }
+        XCTAssertTrue(
+            learnedLatinWords.isEmpty,
+            "Tab over a finished word must not write anything: \(learnedLatinWords)")
+    }
+
+    /// The other side of the same gate: a run that is *not* a finished
+    /// word still completes normally. "aweso" is not a dictionary entry
+    /// at all, and a two-letter run is below the finished-word floor (see
+    /// KeyHandler's kMinFinishedLatinWordLength) even when the dictionary
+    /// happens to list it -- "pr" and "th" are both entries, and both must
+    /// keep completing.
+    func testAnUnfinishedRunStillCompletes() {
+        type("aweso")
+        XCTAssertEqual(predictedCompletion, "awesome")
+        pressTab()
+        XCTAssertEqual(composingBuffer, "awesome")
+
+        // Both are dictionary entries in their own right, and both lock as
+        // Rule-A runs ("co" does not -- it is a valid reading, so it stays
+        // Chinese; that is Rule B's job, not this gate's).
+        for shortRun in ["th", "pr"] {
+            resetSession()
+            type(shortRun)
+            XCTAssertNotNil(
+                predictedCompletion,
+                "\(shortRun): a short run is a prefix in progress, not a finished word: \(state)")
+        }
+    }
+
+    // MARK: - B4: Shift+letter must not swallow a pending run
+
+    /// docs/REVIEW-P3-2026-09-11.md's B4. Shift+letter is upstream's own
+    /// "force English, uppercase" gesture and deliberately bypasses every
+    /// mixedScript code path -- but a pending Rule-A run lives only in the
+    /// tracker, so the uppercase path used to clear it away with
+    /// everything else. Typing "the API" lost "the" outright.
+    func testShiftLetterCommitsThePendingRunInsteadOfDroppingIt() {
+        type("the")
+        XCTAssertEqual(composingBuffer, "the")
+        pressShiftLetter("a")
+        XCTAssertEqual(
+            committedText, "the",
+            "the pending run must reach the application, not vanish")
+        XCTAssertTrue(learnedLatinWords.keys.contains("the"))
+    }
+
+    /// Same fix with the completion candidate window open -- that path
+    /// closes the window and re-dispatches the key, so it has to land on
+    /// the same boundary handling.
+    func testShiftLetterWithTheCandidateWindowOpenAlsoCommitsTheRun() {
+        type("th")
+        pressShiftTab()
+        XCTAssertTrue(state is InputState.ChoosingCandidate, "\(state)")
+        pressShiftLetter("a")
+        XCTAssertEqual(committedText, "th")
+    }
+
+    // MARK: - B5: Tab is never handed to the application mid-composition
+
+    /// docs/REVIEW-P3-2026-09-11.md's B5. With a pending run on screen and
+    /// nothing for Tab to do, `handle(input:)` returned false, so the host
+    /// application got the Tab and moved focus (or typed a tab character)
+    /// while unfinished English was still showing. Asserted on the return
+    /// value, which is the only thing that decides whether the key escapes.
+    func testTabAndShiftTabAreAlwaysConsumedWhileARunIsPending() {
+        // No completion exists at all.
+        resetSession()
+        type("thq")
+        XCTAssertTrue(pressShiftTab(), "Shift+Tab must be consumed for \"thq\"")
+        XCTAssertEqual(composingBuffer, "thq")
+
+        // A finished word: the gate says there is nothing to offer.
+        for word in ["acer", "the"] {
+            resetSession()
+            type(word)
+            XCTAssertTrue(pressShiftTab(), "Shift+Tab must be consumed for \"\(word)\"")
+            XCTAssertEqual(composingBuffer, word)
+        }
+
+        // The pre-existing correct behaviour, which must not change: with
+        // nothing composing at all, Tab belongs to the application.
+        resetSession()
+        XCTAssertFalse(pressShiftTab(), "an empty composing buffer must not eat Tab")
+    }
+
+    // MARK: - B2: what learn-from-typing is allowed to write to disk
+
+    /// docs/REVIEW-P3-2026-09-11.md's B2 and N5. `latinLearnTypedWords` is
+    /// on by default and used to append *any* committed run of three or
+    /// more letters to latin-user.txt with no dictionary check and no
+    /// length cap, where -- because every user word ranked ahead of the
+    /// whole dictionary -- it then owned its prefix permanently. Mutation
+    /// testing found nothing guarding this at all (M2 and M4 both
+    /// survived). This is the table.
+    func testLearnFromTypingWritesOnlyWhatThePolicyAllows() {
+        // A word the dictionary already knows is recorded on first commit.
+        type("code ")
+        XCTAssertEqual(learnedLatinWords["code"], 1)
+
+        // A word it does not know is not, however that run was ended.
+        // (Distinct words per case rather than resetting the lexicon
+        // between them: the staged sighting count lives in the
+        // process-wide lexicon, so a reset here would also need another
+        // background reload to finish before learning could work at all.)
+        resetSession()
+        type("thq ")
+        XCTAssertNil(
+            learnedLatinWords["thq"],
+            "space: an unknown word must not be written on its first commit")
+
+        resetSession()
+        type("zzq,")
+        XCTAssertNil(
+            learnedLatinWords["zzq"],
+            "punctuation: an unknown word must not be written on its first commit")
+
+        resetSession()
+        type("xqk")
+        pressEnter()
+        XCTAssertNil(
+            learnedLatinWords["xqk"],
+            "Enter: an unknown word must not be written on its first commit")
+
+        // ...until the same string has been committed a second time.
+        resetSession()
+        type("thq ")
+        XCTAssertEqual(
+            learnedLatinWords["thq"], 2,
+            "two separate commits of the same unknown word do learn it")
+        XCTAssertNil(learnedLatinWords["zzq"], "other staged words are unaffected")
+    }
+
+    /// The length bounds, and the 40-letter mash the review typed.
+    func testLearnFromTypingRejectsRunsOutsideTheLengthBounds() {
+        let mash = String(repeating: "qwrt", count: 10)
+        type(mash + " ")
+        type(mash + " ")
+        XCTAssertNil(
+            learnedLatinWords[mash],
+            "a 40-letter run is past the length cap even after two sightings")
+
+        resetSession()
+        type("th ")
+        XCTAssertNil(learnedLatinWords["th"], "two letters is below the floor")
+    }
+
+    /// Abandoning a run must never leave a trace. Mutation M2 (letting
+    /// Esc learn too) survived the previous suite; this kills it.
+    func testAbandoningARunLearnsNothing() {
+        type("code")
+        pressEsc()
+        XCTAssertTrue(learnedLatinWords.isEmpty, "\(learnedLatinWords)")
+
+        resetSession()
+        type("code")
+        for _ in 0..<4 {
+            pressBackspace()
+        }
+        XCTAssertTrue(learnedLatinWords.isEmpty, "\(learnedLatinWords)")
+
+        // Shift's own force-English path never touches the tracker.
+        resetSession()
+        for letter in ["a", "b", "c"] {
+            pressShiftLetter(letter)
+        }
+        pressEnter()
+        XCTAssertTrue(learnedLatinWords.isEmpty, "\(learnedLatinWords)")
+
+        // Pure Chinese, obviously.
+        resetSession()
+        type("su3cl3")
+        pressEnter()
+        XCTAssertTrue(learnedLatinWords.isEmpty, "\(learnedLatinWords)")
+    }
+
+    /// Mutation M4 (dropping the preference gate) survived the previous
+    /// suite: nothing asserted that turning the preference off actually
+    /// stops the writes.
+    func testLearnFromTypingWritesNothingWhenThePreferenceIsOff() {
+        Preferences.latinLearnTypedWords = false
+        type("code ")
+        type("thq ")
+        resetSession()
+        type("thq ")
+        XCTAssertTrue(
+            learnedLatinWords.isEmpty,
+            "latinLearnTypedWords=false must mean zero writes: \(learnedLatinWords)")
+    }
+
+    /// docs/REVIEW-P3-2026-09-11.md's N3: turning *completion* off is the
+    /// intuitive way to switch P3 off, and it used to leave the
+    /// learn-from-typing writes running.
+    func testLearnFromTypingStopsWhenCompletionIsDisabled() {
+        Preferences.latinCompletionEnabled = false
+        type("code ")
+        XCTAssertTrue(
+            learnedLatinWords.isEmpty,
+            "disabling completion must stop the disk writes too: \(learnedLatinWords)")
+    }
+
+    /// An accepted completion is a deliberate choice and confirms the word
+    /// on its own -- one accept, not two, and it does not double-count
+    /// when the run is then committed normally.
+    func testAcceptingACompletionRecordsItOnce() {
+        type("aweso")
+        pressTab()
+        XCTAssertEqual(composingBuffer, "awesome")
+        pressEnter()
+        XCTAssertEqual(learnedLatinWords["awesome"], 2)
+        XCTAssertNil(learnedLatinWords["aweso"], "the abandoned prefix is not a word")
+    }
+
     // MARK: - Pure Chinese: ON must equal OFF
 
     func testPureChineseTypingIsUnaffectedByLatinCompletion() {
@@ -714,44 +1076,49 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         return candidates
     }
 
+    /// Why a token was never completable. The order the tests below ask
+    /// these questions in is the whole point (docs/REVIEW-P3-2026-09-11.md's
+    /// N2): the dictionary is consulted *first*, and only a token the
+    /// dictionary genuinely does not have is then judged on its casing.
+    ///
+    /// The previous order short-circuited on `hasUppercase`, so 61 of the
+    /// 154 never-completable tokens -- `API`, `App`, `Apple`, `Blog`,
+    /// `CLI`, `Games`, `Meet`, `Steam`, `Story`, `This`, `Tool`, ... --
+    /// were filed as "proper noun / abbreviation" (i.e. "we would need a
+    /// bigger word list") when their lowercase forms are ordinary
+    /// dictionary entries that simply never won their prefix. The
+    /// simulation types `lowercased()` anyway, so casing tells us nothing
+    /// about whether the *lookup* could have succeeded.
+    ///
+    /// That distinction decides what P4 should do: a ranking miss is
+    /// fixed by a real frequency source, a missing word by a bigger
+    /// dictionary. They are not the same work.
     private enum UncompletableCategory {
-        /// Original token has an uppercase letter (a corpus-cased proper
-        /// noun/acronym signal), or its lowercase form is not a
-        /// recognized dictionary word at all.
-        case properNounOrAbbreviation
-        /// Lowercase form is not a dictionary word, but a plausible
-        /// suffix-stripped lemma of it is -- an inflected form the
-        /// dictionary is missing. P3 fix #1's SCOWL word list (which
-        /// includes inflected forms directly, unlike the old web2-based
-        /// one) should drive this toward 0.
-        case inflectedForm
         /// The lowercase form *is* a recognized dictionary word, but no
         /// prefix of it ever ranked it as the top-1 completion -- a
-        /// ranking artifact (a different, better-ranked word shares every
-        /// tested prefix), not a missing-word problem.
-        case other
+        /// different, better-ranked word shares every tested prefix.
+        case rankingMiss
+        /// Not a dictionary word, but a plausible suffix-stripped lemma of
+        /// it is -- an inflected form the dictionary is missing. P3 fix
+        /// #1's SCOWL word list (which includes inflected forms directly,
+        /// unlike the old web2-based one) should drive this toward 0.
+        case inflectedForm
+        /// Not a dictionary word and no lemma of it is either: a genuine
+        /// vocabulary gap (a name, an acronym, a product).
+        case notInDictionary
 
         /// `token` is the corpus form (case as written); `lower` is
         /// already lowercased (callers already have it, no need to
         /// recompute).
         static func classify(_ token: String, lower: String) -> UncompletableCategory {
-            let hasUppercase = token.contains { $0.isUppercase }
-            let isDictionaryWord = LanguageModelManager.isLatinWord(forTesting: lower)
-            if hasUppercase || !isDictionaryWord {
-                if !hasUppercase {
-                    // Only worth guessing a lemma for a token that was
-                    // already lowercase in the source -- an
-                    // uppercase-in-source token is a proper
-                    // noun/abbreviation regardless of whether some lemma
-                    // of it happens to also be a dictionary word.
-                    let lemmas = LatinCompletionKeyHandlerTests.plausibleLemmas(of: lower)
-                    if lemmas.contains(where: { LanguageModelManager.isLatinWord(forTesting: $0) }) {
-                        return .inflectedForm
-                    }
-                }
-                return .properNounOrAbbreviation
+            if LanguageModelManager.isLatinWord(forTesting: lower) {
+                return .rankingMiss
             }
-            return .other
+            let lemmas = LatinCompletionKeyHandlerTests.plausibleLemmas(of: lower)
+            if lemmas.contains(where: { LanguageModelManager.isLatinWord(forTesting: $0) }) {
+                return .inflectedForm
+            }
+            return .notInDictionary
         }
     }
 
@@ -760,9 +1127,9 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         var neverCompletable = 0
         var totalKeystrokesSaved = 0
         var total = 0
-        var properNounOrAbbreviation = 0
+        var rankingMiss = 0
         var inflectedForm = 0
-        var other = 0
+        var notInDictionary = 0
     }
 
     private func evaluate(_ token: String, into outcome: inout EvalOutcome) {
@@ -779,9 +1146,9 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         } else {
             outcome.neverCompletable += 1
             switch UncompletableCategory.classify(token, lower: lower) {
-            case .properNounOrAbbreviation: outcome.properNounOrAbbreviation += 1
+            case .rankingMiss: outcome.rankingMiss += 1
             case .inflectedForm: outcome.inflectedForm += 1
-            case .other: outcome.other += 1
+            case .notInDictionary: outcome.notInDictionary += 1
             }
         }
     }
@@ -799,9 +1166,9 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
             | completable within 3 letters | \(outcome.completableAtOrBelow[3]!)/\(total) = \(pct(outcome.completableAtOrBelow[3]!))% |
             | completable within 4 letters | \(outcome.completableAtOrBelow[4]!)/\(total) = \(pct(outcome.completableAtOrBelow[4]!))% |
             | never completable | \(outcome.neverCompletable)/\(total) = \(pct(outcome.neverCompletable))% |
-            | \u{2003}- proper noun / abbreviation (uppercase in source, or not in the dictionary at all) | \(outcome.properNounOrAbbreviation) |
+            | \u{2003}- ranking miss (in the dictionary, never ranked top-1 at any tested prefix) | \(outcome.rankingMiss) |
             | \u{2003}- inflected form (lemma in the dictionary, inflected form is not) | \(outcome.inflectedForm) |
-            | \u{2003}- other (a dictionary word, but never ranked top-1 at any tested prefix) | \(outcome.other) |
+            | \u{2003}- not in the dictionary (name, acronym, product) | \(outcome.notInDictionary) |
             | average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | \(String(format: "%.2f", avgSaved)) |
             """
     }

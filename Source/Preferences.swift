@@ -381,21 +381,49 @@ class Preferences: NSObject {
     @objc static var latinCompletionEnabled: Bool
 
     /// Whether a Rule-A Latin run that reaches an ordinary boundary commit
-    /// (Enter, space, or punctuation -- see KeyHandler's
-    /// _commitMixedScriptLatinRun) is written into the user's own Latin
-    /// lexicon (`latin-user.txt`) the same way an explicit Tab/candidate-
-    /// window completion accept already is, so words the user actually
-    /// types (not just words they accept a prediction for) get counted and
-    /// so rank ahead of the built-in dictionary the next time they are
-    /// typed. Privacy: only a run that is actually committed counts (Esc
-    /// or Backspace canceling it never reaches this hook at all -- see
-    /// KeyHandler's _learnTypedLatinWordIfEligible:), nothing about
-    /// Bopomofo/Chinese input is ever written this way, and a Shift-typed
-    /// forced-uppercase word (the separate pre-existing upstream "force
-    /// English" gesture, not mixedScript) is never seen by this hook
-    /// either. Defaults to on, matching latinCompletionEnabled -- with
-    /// mixedScriptEnabled already off, this preference is unreachable, so
-    /// it only ever takes effect on top of P1 already being turned on.
+    /// (Enter, space, punctuation, or a Shift+letter starting the next
+    /// word -- see KeyHandler's _commitMixedScriptLatinRun) can be written
+    /// into the user's own Latin lexicon (`latin-user.txt`), so words the
+    /// user actually types -- not just words they accept a prediction for
+    /// -- start ranking ahead of the built-in dictionary.
+    ///
+    /// A committed run is a *candidate*, not an entry. The rules, in
+    /// KeyHandler's `_learnTypedLatinWordIfEligible:`:
+    ///
+    ///  * 3-20 lowercase ASCII letters, or it is ignored outright;
+    ///  * a run the lexicon already knows (dictionary, tech seed, or a
+    ///    word this user has learned before) is recorded immediately, and
+    ///    needs a second sighting before it outranks the dictionary;
+    ///  * anything else is held **in memory only** and reaches the file
+    ///    after it has been committed twice, in two separate commits.
+    ///
+    /// That last rule is the one that matters, because a run cannot
+    /// report on itself: a locked Rule-A run keeps absorbing letters
+    /// until a non-letter key, so "acersu" -- an English word with the
+    /// start of a Chinese syllable glued on -- looks exactly like a new
+    /// word the first time. Requiring the identical string twice is the
+    /// only available signal. Without it, one typo owned its prefix
+    /// permanently (docs/REVIEW-P3-2026-09-11.md's B2).
+    ///
+    /// Privacy: only a run that is actually committed counts (Esc or
+    /// Backspace canceling it never reaches this hook at all), nothing
+    /// about Bopomofo/Chinese input is ever written this way, a
+    /// Shift-typed forced-uppercase word (the separate pre-existing
+    /// upstream "force English" gesture) is never seen by this hook, and
+    /// turning `latinCompletionEnabled` off stops the writes as well as
+    /// the predictions. Defaults to on, matching latinCompletionEnabled
+    /// -- with mixedScriptEnabled already off, this preference is
+    /// unreachable, so it only ever takes effect on top of P1 already
+    /// being turned on. The file is plain text: to forget something, edit
+    /// or delete `latin-user.txt` in the user-phrase folder.
+    ///
+    /// One undocumented-until-now escape hatch worth knowing
+    /// (docs/REVIEW-P3-2026-09-11.md's N12): pressing Tab before ending a
+    /// run suppresses learning for it even when Tab has no completion to
+    /// offer, because Tab reaching the boundary path at all means "no
+    /// completion was available", which is not the user choosing to
+    /// finish this exact word. So `thq` + Enter stages a sighting;
+    /// `thq` + Tab + Enter stages nothing.
     @UserDefault(key: kLatinLearnTypedWordsKey, defaultValue: true)
     @objc static var latinLearnTypedWords: Bool
 

@@ -52,6 +52,26 @@ namespace McBopomofo::MixedScript {
 // used from a single key-handling thread.
 class LatinLexicon {
  public:
+  // A user word's stored score has to reach this before it is treated as
+  // "the user really means this word" -- i.e. before complete() ranks it
+  // ahead of the entire built-in dictionary and sourceTier() calls it
+  // confirmed. rememberWord()'s doc lists what adds how much; the point
+  // is that a single passive sighting of a typed word never earns it
+  // (docs/REVIEW-P3-2026-09-11.md's B2: one mistyped word used to
+  // outrank the whole dictionary for its prefix, forever).
+  static constexpr int kUserWordConfirmedScore = 2;
+  // How much weight an *explicit* accept carries (Tab or a candidate-
+  // window pick): deliberately enough to confirm a word on its own,
+  // because unlike passive learn-from-typing it is an unambiguous choice
+  // the user made about this exact word.
+  static constexpr int kExplicitAcceptWeight = kUserWordConfirmedScore;
+
+  // sourceTier() levels. Smaller is better.
+  static constexpr int kConfirmedUserWordTier = 0;
+  static constexpr int kBestSourceTier = 1;
+  static constexpr int kUnrankedSourceTier = 1000;
+  static constexpr int kUnknownSourceTier = -1;
+
   LatinLexicon() = default;
   LatinLexicon(const LatinLexicon&) = delete;
   LatinLexicon& operator=(const LatinLexicon&) = delete;
@@ -131,29 +151,87 @@ class LatinLexicon {
   // known word. User-remembered words always rank as 0 (most preferred).
   int rank(const std::string& text) const;
 
+  // P3 (docs/REVIEW-P3-2026-09-11.md's B3). How good this word's *source*
+  // is, coarsely -- smaller is better:
+  //
+  //   kConfirmedUserWordTier (0) a confirmed user word (score >=
+  //                              kUserWordConfirmedScore)
+  //   kBestSourceTier        (1) the first built-in file loaded (the
+  //                              hand-ranked tech seed, whose internal
+  //                              0..n order is a preference between seed
+  //                              terms, not a frequency measurement) AND
+  //                              the dictionary's most frequent tier
+  //   kBestSourceTier + t        SCOWL tier t of the dictionary file
+  //   kUnrankedSourceTier        a user word with no dictionary entry and
+  //                              no confirmation yet
+  //   kUnknownSourceTier    (-1) not a known word at all
+  //
+  // "The first built-in file loaded is the seed list" is the same load-
+  // order convention loadBuiltinWordList()'s rank-offset doc already
+  // relies on. With only one built-in file loaded (tests, or a build
+  // whose seed resource is missing) every built-in word therefore lands
+  // on kBestSourceTier, which makes the callers' "already a finished
+  // word" gate maximally conservative rather than wrong.
+  //
+  // Unlike rank(), this is comparable *across* files, which is the whole
+  // point: rank() puts every seed term ahead of every dictionary word, so
+  // comparing raw ranks made a finished ordinary word like "code" look
+  // worse than the seed term "codesign" that merely extends it, and Tab
+  // rewrote the one into the other (B3). The seed file deliberately ties
+  // with dictionary tier 0 rather than beating it so that a completed
+  // common word is never grown into a product term; a *rarer* word (a
+  // higher tier) can still be grown, which is what keeps prefixes like
+  // "th" completing normally.
+  int sourceTier(const std::string& text) const;
+
   // P3 predictive typing (see zhuyin-ime-personal.md's F3 scope). Returns
   // up to `n` known words that start with (but are longer than) `prefix`,
-  // best completion first. Ordering: a word in the user's own lexicon
-  // beats every builtin word, ranked among themselves by how many times
-  // rememberWord() has recorded it being accepted (most-accepted first);
-  // builtin words are ranked by rank() (which already places tech-seed
-  // ahead of the frequency dictionary -- see loadBuiltinWordList()'s
-  // rank-offset comment); anything still tied breaks alphabetically.
+  // best completion first. Ordering: a *confirmed* user word (score >=
+  // kUserWordConfirmedScore) beats every builtin word, ranked among
+  // themselves by score (highest first); everything else -- including an
+  // unconfirmed user word, which is why one passive sighting no longer
+  // promotes anything -- is ranked by rank(), and anything still tied
+  // breaks alphabetically.
+  //
   // O(k log n) where k is the number of matching words in the dictionary,
   // not the dictionary's total size: uses sortedWords_'s existing binary
-  // search to find the matching range, then keeps only a size-n min-heap
-  // of the best candidates seen rather than sorting the whole range.
+  // search to find the matching range, then keeps only a size-n heap of
+  // the best candidates seen (front() = the worst of them, the one an
+  // incoming candidate must beat) rather than sorting the whole range.
   std::vector<std::string> complete(const std::string& prefix, size_t n) const;
 
   size_t builtinWordCount() const { return builtinRank_.size(); }
   size_t userWordCount() const { return userWords_.size(); }
 
-  // Records that the user explicitly accepted `word` as English -- a P1
+  // P3 (docs/REVIEW-P3-2026-09-11.md's B2). Stages one *sighting* of a
+  // typed word that is not (yet) worth writing to disk, entirely in
+  // memory -- nothing here is ever persisted or visible to
+  // isWord()/complete(). Returns how many sightings this word now has.
+  // KeyHandler's learn-from-typing hook uses this so that a word the
+  // dictionary does not know has to be typed and committed twice, in two
+  // separate commits, before it reaches latin-user.txt at all: a single
+  // typo, a half-finished word, or an English run that swallowed the
+  // following Chinese keys (mixed_script_tracker.h's locked-run
+  // behaviour) is indistinguishable from a real new word when looked at
+  // once, so "twice" is the only signal available. Cleared by reset() and
+  // by rememberWord() promoting the word for real.
+  int notePendingTypedWord(const std::string& word);
+
+  // How many sightings notePendingTypedWord() has staged for `word`
+  // (0 if none). Testing/diagnostics; nothing in production branches on
+  // it beyond the learn-from-typing hook's own threshold check.
+  int pendingTypedWordSightings(const std::string& word) const;
+
+  // Records that the user accepted `word` as English -- a P1
   // mixedScript Tab/candidate-window pick (see KeyHandler's
   // fixNodeWithReading:) or a P3 completion accept (Tab or the completion
-  // candidate window, see KeyHandler's _handleTabState) -- and bumps its
-  // use count by one, creating the word at count 1 if this is the first
-  // time. No-op if `word` is shorter than 2 characters. Rewrites the
+  // candidate window, see KeyHandler's _handleTabState) -- and adds
+  // `weight` to its stored score, creating the word at `weight` if this
+  // is the first time. Pass kExplicitAcceptWeight for a deliberate
+  // accept (which confirms the word on its own) and 1 for one passive
+  // learn-from-typing sighting; see kUserWordConfirmedScore for what
+  // "confirmed" then buys. No-op if `word` is shorter than 2
+  // characters. Rewrites the
   // *entire* user word list file (not just an append) when
   // setUserWordListPath() has been called, since an existing word's count
   // has to change in place; the user list is small (tens to hundreds of
@@ -167,7 +245,7 @@ class LatinLexicon {
   // caller is expected to log that and carry on, since typing must never
   // be blocked by a word-list write. Returns true when there was nothing
   // to do or everything succeeded.
-  bool rememberWord(const std::string& word);
+  bool rememberWord(const std::string& word, int weight = 1);
 
   // Testing-only: discards every loaded word (builtin and user) and all
   // rank bookkeeping, returning the object to its just-constructed state.
@@ -185,6 +263,9 @@ class LatinLexicon {
   // Merges the pointers appended to sortedWords_ since `oldSize` into the
   // already-ordered prefix in front of them.
   void mergeNewSortedWords(size_t oldSize);
+  // sourceTier()'s builtin half: maps a merged rank back to the file it
+  // came from and that file's own in-file rank.
+  int builtinTierForRank(int wordRank) const;
   // Rewrites userWordListPath_ from userWords_ in full. Returns true if
   // there is no path to write to (nothing to do, not a failure) or the
   // write succeeded.
@@ -192,10 +273,17 @@ class LatinLexicon {
 
   // word -> rank (built-in list only; 0 = most frequent).
   std::unordered_map<std::string, int> builtinRank_;
-  // word -> use count (how many times rememberWord() has recorded this
-  // word being accepted; see complete()'s doc for why this exists
+  // word -> score (what rememberWord() has accumulated for this word; see
+  // its doc for what adds how much, and complete()'s for why this exists
   // alongside rank()/isUserWord()'s simpler boolean view of this store).
   std::unordered_map<std::string, int> userWords_;
+  // word -> sightings staged by notePendingTypedWord(). In-memory only:
+  // never loaded, never persisted, dropped on reset().
+  std::unordered_map<std::string, int> pendingTypedWords_;
+  // The merged-rank value each loadBuiltinWordList() call started at, in
+  // load order -- sourceTier()'s only way back from a merged rank to the
+  // file's own tier numbering.
+  std::vector<int> builtinFileRankStarts_;
   // Every known word (builtin + user), kept sorted for isPrefix()/
   // complete()'s binary search. These point at the keys stored inside
   // builtinRank_/userWords_, which std::unordered_map guarantees stay at

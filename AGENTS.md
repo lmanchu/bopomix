@@ -58,6 +58,40 @@ xcodebuild -project McBopomofo.xcodeproj -target Data -configuration Debug build
 - Framework: XCTest with Swift `Testing` module
 - Run in Xcode with ⌘+U or test navigator
 
+**Run the suite serially. `-parallel-testing-enabled YES` does not work
+and will report failures that have nothing to do with your change.**
+
+The reason is not fixable from inside a test: `Preferences` reads and
+writes `UserDefaults.standard`, i.e. the real
+`org.openvanilla.inputmethod.McBopomofo` domain, which is one per-user
+file shared by *every* parallel test-runner process. `PreferencesTests`
+removes every key in that domain in its initializer and asserts on
+default values, while the KeyHandler suites are simultaneously setting
+`MixedScriptEnabled`, `LatinCompletionEnabled`,
+`LatinLearnTypedWords` and `CustomUserPhraseLocation` from other
+processes -- so each suite sees the others' writes. (The process-wide
+`LatinLexicon` and `resetLatinLexiconForTesting()`'s wait were the two
+suspects in `docs/REVIEW-P3-2026-09-11.md`'s N15; both are per-process
+and neither is the cause.) Making this work means plumbing a
+test-specific `UserDefaults` suite through `Preferences`' property
+wrappers, which is a real refactor, not a test fix.
+
+**Preferences are the developer's own live input-method settings.** Any
+test that touches `Preferences` must call
+`PreferenceSandbox.install(on: self)` as the first statement of
+`setUpWithError()` -- writing saved values back in `tearDownWithError` is
+not enough, because it both creates keys that were never in the file and
+is skipped entirely when a test fails. Verify with:
+
+```bash
+tools/eval/check_plist_unchanged.sh \
+  xcodebuild -project McBopomofo.xcodeproj -scheme McBopomofo \
+    -configuration Debug -derivedDataPath build \
+    CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM="" test
+```
+
+which fails if the run changed a single preference key.
+
 #### C++ Engine Tests
 ```bash
 cd Source/Engine
