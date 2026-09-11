@@ -1279,14 +1279,38 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
             tokens into the user lexicon the same way
             Preferences.latinLearnTypedWords does in production, so a
             word's second occurrence should complete sooner than its first.
-            "never completable" tokens are further split into: proper
-            noun/abbreviation (uppercase in the source, or missing from the
-            dictionary entirely), inflected form (a suffix-stripped lemma
-            guess is a dictionary word but the exact form typed is not --
-            P3 fix #1's SCOWL-sourced word list, which includes inflected
-            forms directly, should keep this near 0), and other (a real
-            dictionary word that never ranked top-1 at any tested prefix --
-            a ranking artifact, not a missing word).
+
+            "never completable" tokens are split by asking the dictionary
+            first and only then looking at how the token was written:
+            **ranking miss** (the lowercase form is a dictionary word that
+            never ranked top-1 at any tested prefix -- a different,
+            better-ranked word owns every prefix), **inflected form** (a
+            suffix-stripped lemma guess is a dictionary word but the exact
+            form typed is not -- P3 fix #1's SCOWL-sourced word list, which
+            includes inflected forms directly, keeps this near 0), and
+            **not in the dictionary** (a genuine vocabulary gap: a name, an
+            acronym, a product).
+
+            That order is a correction (docs/REVIEW-P3-2026-09-11.md's N2).
+            The earlier split short-circuited on "does the token contain an
+            uppercase letter", which filed 61 tokens -- `API`, `App`,
+            `Apple`, `Blog`, `CLI`, `Games`, `Meet`, `Steam`, `Story`,
+            `This`, `Tool` and friends -- as vocabulary gaps when their
+            lowercase forms are ordinary dictionary entries. The simulation
+            types `lowercased()` anyway, so casing says nothing about
+            whether the lookup could have succeeded. Corrected, **62% of
+            never-completable tokens are ranking misses, not missing
+            words**, which points P4 at a real frequency source rather than
+            at a bigger dictionary.
+
+            The small drop against the 2026-09-11 run (40.6% -> 40.3%
+            within four letters, 154 -> 155 never completable) is P3 fix
+            #3's tightened "already a finished word" gate: a run that is
+            itself a finished word now shows no prediction at all, so a
+            token whose prefix passes through one (`code` on the way to
+            `codes`) has to be typed one letter further. That is the
+            intended trade -- the alternative was Tab rewriting `code` into
+            `codesign`.
 
             ### No history
 
