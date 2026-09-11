@@ -320,6 +320,65 @@ TEST(MixedScriptTrackerTest, PopLastLatinCharAfterAcceptingCompletion) {
   EXPECT_EQ(tracker.latinRun(), "the");
 }
 
+// P3 fix #2 (see zhuyin-ime-personal.md's P3 fix #2 and
+// LatinLexicon::rememberWord()'s use-count doc): acceptCompletion() marks
+// the run as already remembered so KeyHandler's natural-typing learn hook
+// does not double-count it when the same run later reaches an ordinary
+// boundary commit.
+TEST(MixedScriptTrackerTest, AcceptCompletionMarksTheRunAlreadyRemembered) {
+  LatinLexicon lexicon;
+  MixedScriptTracker tracker(&lexicon);
+  tracker.feedKey(Standard(), 't');
+  tracker.feedKey(Standard(), 'h');
+  EXPECT_FALSE(tracker.latinRunAlreadyRemembered());
+
+  tracker.acceptCompletion("they");
+  EXPECT_TRUE(tracker.latinRunAlreadyRemembered());
+}
+
+// Typing more letters after accepting a completion changes the run's text,
+// so the "already remembered" flag must not still describe it -- the
+// longer/different word the user ends up committing should be eligible for
+// natural-typing learning again.
+TEST(MixedScriptTrackerTest, TypingMoreAfterAcceptingCompletionClearsAlreadyRemembered) {
+  LatinLexicon lexicon;
+  MixedScriptTracker tracker(&lexicon);
+  tracker.feedKey(Standard(), 't');
+  tracker.feedKey(Standard(), 'h');
+  tracker.acceptCompletion("they");
+  ASSERT_TRUE(tracker.latinRunAlreadyRemembered());
+
+  tracker.feedKey(Standard(), 'r');
+  EXPECT_FALSE(tracker.latinRunAlreadyRemembered());
+}
+
+// Backspacing after accepting a completion also changes the run's text.
+TEST(MixedScriptTrackerTest, PopLastLatinCharAfterAcceptingCompletionClearsAlreadyRemembered) {
+  LatinLexicon lexicon;
+  MixedScriptTracker tracker(&lexicon);
+  tracker.feedKey(Standard(), 't');
+  tracker.feedKey(Standard(), 'h');
+  tracker.acceptCompletion("they");
+  ASSERT_TRUE(tracker.latinRunAlreadyRemembered());
+
+  tracker.popLastLatinChar();
+  EXPECT_FALSE(tracker.latinRunAlreadyRemembered());
+}
+
+// reset() (a fresh run, or the run being fully committed/discarded) must
+// not leave a stale "already remembered" flag behind for the next run.
+TEST(MixedScriptTrackerTest, ResetClearsAlreadyRemembered) {
+  LatinLexicon lexicon;
+  MixedScriptTracker tracker(&lexicon);
+  tracker.feedKey(Standard(), 't');
+  tracker.feedKey(Standard(), 'h');
+  tracker.acceptCompletion("they");
+  ASSERT_TRUE(tracker.latinRunAlreadyRemembered());
+
+  tracker.reset();
+  EXPECT_FALSE(tracker.latinRunAlreadyRemembered());
+}
+
 TEST(IsAllAsciiLettersTest, AcceptsLettersOnly) {
   EXPECT_TRUE(IsAllAsciiLetters("acer"));
   EXPECT_TRUE(IsAllAsciiLetters("Acer"));

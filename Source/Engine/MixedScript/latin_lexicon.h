@@ -169,6 +169,17 @@ class LatinLexicon {
   // to do or everything succeeded.
   bool rememberWord(const std::string& word);
 
+  // Testing-only: discards every loaded word (builtin and user) and all
+  // rank bookkeeping, returning the object to its just-constructed state.
+  // The only production caller is LanguageModelManager's
+  // resetLatinLexiconForTesting(), added to fix
+  // docs/REVERIFY-P1-2026-09-10.md's R12 (every XCTest KeyHandler-level
+  // test target shares one process-wide LatinLexicon, so an explicit
+  // Tab/candidate pick in one test silently changed another test's "top
+  // completion" ranking whenever both ran in the same process) --
+  // ordinary operation never needs to un-load a word list.
+  void reset();
+
  private:
   static std::string ToLowerAscii(const std::string& text);
   // Merges the pointers appended to sortedWords_ since `oldSize` into the

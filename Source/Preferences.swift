@@ -50,6 +50,10 @@ private let kMixedScriptLatinOnSpaceForUserWordsKey = "MixedScriptLatinOnSpaceFo
 // _mixedScriptAvailable) -- this only decides whether completion runs on
 // top of an already-available mixedScript run.
 private let kLatinCompletionEnabledKey = "LatinCompletionEnabled"
+// P3 fix #2 (see zhuyin-ime-personal.md's P3 fix #2): learn from Latin
+// runs actually typed and committed, not only from an explicit Tab/
+// candidate-window completion accept.
+private let kLatinLearnTypedWordsKey = "LatinLearnTypedWords"
 
 private let kCandidateTextFontName = "CandidateTextFontName"
 private let kCandidateKeyLabelFontName = "CandidateKeyLabelFontName"
@@ -248,6 +252,7 @@ class Preferences: NSObject {
             kMixedScriptEnabledKey,
             kMixedScriptLatinOnSpaceForUserWordsKey,
             kLatinCompletionEnabledKey,
+            kLatinLearnTypedWordsKey,
         ]
     }
 
@@ -374,6 +379,25 @@ class Preferences: NSObject {
     /// the opt-out, not the opt-in.
     @UserDefault(key: kLatinCompletionEnabledKey, defaultValue: true)
     @objc static var latinCompletionEnabled: Bool
+
+    /// Whether a Rule-A Latin run that reaches an ordinary boundary commit
+    /// (Enter, space, or punctuation -- see KeyHandler's
+    /// _commitMixedScriptLatinRun) is written into the user's own Latin
+    /// lexicon (`latin-user.txt`) the same way an explicit Tab/candidate-
+    /// window completion accept already is, so words the user actually
+    /// types (not just words they accept a prediction for) get counted and
+    /// so rank ahead of the built-in dictionary the next time they are
+    /// typed. Privacy: only a run that is actually committed counts (Esc
+    /// or Backspace canceling it never reaches this hook at all -- see
+    /// KeyHandler's _learnTypedLatinWordIfEligible:), nothing about
+    /// Bopomofo/Chinese input is ever written this way, and a Shift-typed
+    /// forced-uppercase word (the separate pre-existing upstream "force
+    /// English" gesture, not mixedScript) is never seen by this hook
+    /// either. Defaults to on, matching latinCompletionEnabled -- with
+    /// mixedScriptEnabled already off, this preference is unreachable, so
+    /// it only ever takes effect on top of P1 already being turned on.
+    @UserDefault(key: kLatinLearnTypedWordsKey, defaultValue: true)
+    @objc static var latinLearnTypedWords: Bool
 
     // MARK: Optional settings
 

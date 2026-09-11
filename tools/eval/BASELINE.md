@@ -138,7 +138,7 @@ genuinely do not cover it, or there is a bug -- see the category column.
 | h | 1 | 規則錯判／未命中詞典（獨立測試也失敗，需人工檢視） |
 | zz | 1 | 規則錯判／未命中詞典（獨立測試也失敗，需人工檢視） |
 
-## P1 round 2 -- app path (real KeyHandler), 2026-09-10
+## P1 round 2 -- app path (real KeyHandler), 2026-09-11
 
 Produced by `MixedScriptKeyHandlerTests.testEval200ThroughKeyHandler`
 (`xcodebuild -scheme McBopomofo test`), typing each corpus row's
@@ -163,7 +163,7 @@ visible so the difference is not hidden.
 | F1 row-level (all tokens kept) | 167/200 = 83.5% | 160/200 = 80.0% |
 | zh accuracy within the mixed sentence | 3901/4586 = 85.1% | 1845/4586 = 40.2% |
 | rows with a zh length mismatch | 37/200 | 146/200 |
-| latency per row (avg / p50 / p95 / max) | 5300us / 5394us / 9382us / 13339us | 6899us / 6868us / 12314us / 17498us |
+| latency per row (avg / p50 / p95 / max) | 6472us / 6471us / 11317us / 14902us | 8196us / 8046us / 13882us / 19147us |
 
 ### Pure-Chinese control: does turning this on damage normal typing?
 
@@ -178,7 +178,7 @@ while the harness's own F2 number stayed flat, because F2's
 |---|---|---|
 | **zh character accuracy** | **4369/4586 = 95.3%** | 4369/4586 = 95.3% |
 | rows with a zh length mismatch | 1/200 | 1/200 |
-| latency per row (avg / p50 / p95 / max) | 4931us / 4992us / 8906us / 12641us | 4872us / 4994us / 8852us / 12516us |
+| latency per row (avg / p50 / p95 / max) | 5181us / 5289us / 9261us / 13228us | 5118us / 5092us / 9168us / 14861us |
 
 Note that the "zh accuracy within the mixed sentence" row in the
 first table is *not* comparable to 95.3%: it is measured on
@@ -191,20 +191,50 @@ pure-Chinese control above is the like-for-like number.
 
 Produced by `LatinCompletionKeyHandlerTests.testEval200LatinCompletion`
 (`xcodebuild -scheme McBopomofo test`). For every eval200 English
-token of length >= 3 (330 of them), simulates typing it letter
-by letter into a real `KeyHandler` and records the first prefix
-length at which the completion tooltip's top-1 prediction equals
-the token -- i.e. how many letters the user would actually have
-typed before Tab completes it. See this test's doc comment for
-the one caveat on cross-test lexicon state this number carries.
+token of length >= 3, simulates typing it letter by letter into
+a real `KeyHandler` and records the first prefix length at which
+the completion tooltip's top-1 prediction equals the token --
+i.e. how many letters the user would actually have typed before
+Tab completes it. Two passes (P3 fix #4): "no history" evaluates
+every token cold; "with history" replays the corpus in row
+order and, after evaluating each row, teaches its eligible
+tokens into the user lexicon the same way
+Preferences.latinLearnTypedWords does in production, so a
+word's second occurrence should complete sooner than its first.
+"never completable" tokens are further split into: proper
+noun/abbreviation (uppercase in the source, or missing from the
+dictionary entirely), inflected form (a suffix-stripped lemma
+guess is a dictionary word but the exact form typed is not --
+P3 fix #1's SCOWL-sourced word list, which includes inflected
+forms directly, should keep this near 0), and other (a real
+dictionary word that never ranked top-1 at any tested prefix --
+a ranking artifact, not a missing word).
+
+### No history
 
 | metric | value |
 |---|---|
-| completable within 2 letters | 52/330 = 15.8% |
-| completable within 3 letters | 87/330 = 26.4% |
-| completable within 4 letters | 100/330 = 30.3% |
-| never completable (no dictionary match at any prefix) | 197/330 = 59.7% |
-| average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | 0.67 |
+| completable within 2 letters | 53/330 = 16.1% |
+| completable within 3 letters | 89/330 = 27.0% |
+| completable within 4 letters | 134/330 = 40.6% |
+| never completable | 154/330 = 46.7% |
+|  - proper noun / abbreviation (uppercase in source, or not in the dictionary at all) | 120 |
+|  - inflected form (lemma in the dictionary, inflected form is not) | 0 |
+|  - other (a dictionary word, but never ranked top-1 at any tested prefix) | 34 |
+| average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | 0.78 |
+
+### With history (learning applied between rows)
+
+| metric | value |
+|---|---|
+| completable within 2 letters | 60/330 = 18.2% |
+| completable within 3 letters | 107/330 = 32.4% |
+| completable within 4 letters | 161/330 = 48.8% |
+| never completable | 135/330 = 40.9% |
+|  - proper noun / abbreviation (uppercase in source, or not in the dictionary at all) | 101 |
+|  - inflected form (lemma in the dictionary, inflected form is not) | 0 |
+|  - other (a dictionary word, but never ranked top-1 at any tested prefix) | 34 |
+| average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | 0.94 |
 
 ### Pure-Chinese control: ON vs OFF, character by character
 

@@ -557,6 +557,32 @@ static void LTLoadMixedScriptLexicon()
     return [self checkIfUserDataFolderExists];
 }
 
++ (void)resetLatinLexiconForTesting
+{
+    // A load may already be in flight -- e.g. the test host app's own
+    // +loadDataModels at launch, reading whatever Preferences.mixedScriptEnabled
+    // is on disk at that moment, before any test's setUp has had a chance
+    // to override it. LTLoadMixedScriptLexicon()'s background block is
+    // documented to be gLatinLexicon's only writer between "load started"
+    // and "load ready" (the plain-publish pattern its comment describes);
+    // reset()ing concurrently with it would be a data race on the same
+    // object from two threads. Wait for any such load to finish
+    // publishing first -- bounded by the same ~150ms a load already
+    // takes, never blocking forever since the background queue makes
+    // progress independently of this (main-thread, testing-only) spin.
+    while (gLatinLexiconLoadStarted && !gLatinLexiconReady.load(std::memory_order_acquire)) {
+        [NSThread sleepForTimeInterval:0.001];
+    }
+    gLatinLexicon.reset();
+    gLatinLexiconLoadStarted = NO;
+    gLatinLexiconReady.store(false, std::memory_order_release);
+}
+
++ (BOOL)isLatinWordForTesting:(NSString *)word
+{
+    return gLatinLexiconReady.load(std::memory_order_acquire) && gLatinLexicon.isWord(word.UTF8String);
+}
+
 + (McBopomofo::McBopomofoLM *)languageModelMcBopomofo
 {
     return &gLanguageModelMcBopomofo;

@@ -90,6 +90,15 @@ class MixedScriptKeyHandlerTests: XCTestCase {
         Preferences.useCustomUserPhraseLocation = true
         Preferences.customUserPhraseLocation = folder.path
 
+        // P3 fix #6 (see docs/REVERIFY-P1-2026-09-10.md's R12): the Latin
+        // lexicon is a process-wide global every KeyHandler-level XCTest
+        // target shares, so without this an explicit Tab/candidate pick
+        // in one test permanently promotes a word into the *next* test's
+        // "top completion" ranking too, whenever both run in the same
+        // process. Reset before (re-)loading so every test starts from a
+        // clean, freshly-loaded builtin dictionary and an empty user
+        // store pointed at this test's own throwaway folder.
+        LanguageModelManager.resetLatinLexiconForTesting()
         LanguageModelManager.loadDataModels()
         try waitForLatinLexicon()
 
@@ -441,10 +450,6 @@ class MixedScriptKeyHandlerTests: XCTestCase {
     /// alternate is scored just under the reading's best unigram, so it is
     /// the candidate window's second row and the very first Tab reaches
     /// it -- with the old fixed -99 score it was last of 39.
-    ///
-    /// (Each of these three tests uses a different word on purpose: an
-    /// explicit Tab pick writes to the process-wide Latin lexicon, so
-    /// sharing a word would make them depend on execution order.)
     func testRuleB_FirstTabReachesTheEnglishForm() {
         type("ell ")
         XCTAssertEqual(composingBuffer, "高")
@@ -956,26 +961,23 @@ class MixedScriptKeyHandlerTests: XCTestCase {
     /// R5: a rule-A run has a single candidate. Tab-cycling over it is not a
     /// choice between Chinese and English and must not touch latin-user.txt.
     ///
-    /// P3 (see ~/.claude/plans/zhuyin-ime-personal.md's F3 scope) gives
-    /// Tab a new, deliberate job on exactly this state -- completing the
-    /// pending run ("acer" -> a longer dictionary word) -- which does
-    /// write the accepted word to latin-user.txt by design (that is the
-    /// whole point: an accepted completion should rank first next time).
-    /// R5's original invariant -- merely *cycling* Tab over a run with
-    /// nothing to complete to must never look like a choice -- still
-    /// holds and is still worth pinning, so this test now scopes itself
-    /// to Preferences.latinCompletionEnabled = false (P3's own "no
-    /// completion" fallback is exactly P1's unchanged behavior; see
+    /// P3 (see ~/.claude/plans/zhuyin-ime-personal.md's F3 scope) gives Tab
+    /// a new, deliberate job on a pending rule-A run -- completing it into
+    /// a longer dictionary word -- but P3 fix #3 also gives it a deliberate
+    /// *non*-job here: "acer" is tech-seed ranked ahead of every longer
+    /// word sharing its prefix (e.g. "acerbic"), so it counts as an
+    /// already-finished word (see KeyHandler's _isAlreadyCompleteWord:) and
+    /// Tab must leave it alone -- falling through to exactly R5's original
+    /// invariant, cycling a single already-committed candidate, which is
+    /// not a choice and must not touch latin-user.txt. This is true with
+    /// latinCompletionEnabled at its normal on-by-default value (this test
+    /// no longer needs to turn it off); testTabDoesNotExtendACompleteWord
+    /// below pins the "stays acer" half of the same fix, and
     /// LatinCompletionKeyHandlerTests.swift's
-    /// testTabWithCompletionDisabledMatchesMaster for the ON-by-default
-    /// counterpart of this same scenario).
+    /// testTabWithCompletionDisabledMatchesMaster covers the
+    /// completion-disabled counterpart for a run this fix does not apply
+    /// to.
     func testR5_TabOnARuleARunDoesNotWriteTheUserLexicon() throws {
-        let savedLatinCompletionEnabled = Preferences.latinCompletionEnabled
-        Preferences.latinCompletionEnabled = false
-        defer {
-            Preferences.latinCompletionEnabled = savedLatinCompletionEnabled
-        }
-
         let path = temporaryUserDataFolder!.appendingPathComponent("latin-user.txt").path
         let before = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
         type("acer")
@@ -984,6 +986,30 @@ class MixedScriptKeyHandlerTests: XCTestCase {
         XCTAssertEqual(composingBuffer, "acer")
         let after = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
         XCTAssertEqual(after, before, "Tab over a rule-A run must not remember the word")
+    }
+
+    /// P3 fix #3 (see ~/.claude/plans/zhuyin-ime-personal.md's P3 fix #3
+    /// and KeyHandler's _isAlreadyCompleteWord:): Tab must not silently
+    /// grow an already-finished word into a longer dictionary entry just
+    /// because one happens to share its prefix. Companion to
+    /// LatinCompletionKeyHandlerTests.swift's tooltip-focused coverage of
+    /// the same fix -- this one pins the KeyHandler-level Tab outcome
+    /// (composingBuffer, and that latin-user.txt does not change).
+    func testTabDoesNotExtendACompleteWord() throws {
+        let path = temporaryUserDataFolder!.appendingPathComponent("latin-user.txt").path
+        let before = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+
+        type("acer")
+        pressTab()
+        XCTAssertEqual(composingBuffer, "acer", "Tab must not turn \"acer\" into \"acerbic\"")
+
+        resetSession()
+        type("the")
+        pressTab()
+        XCTAssertEqual(composingBuffer, "the")
+
+        let after = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        XCTAssertEqual(after, before, "an already-complete word must not be learned via Tab either")
     }
 
 }

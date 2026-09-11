@@ -36,12 +36,32 @@ class KeyHandlerBopomofoTests: XCTestCase {
     var handler = KeyHandler()
     var savedKeyboardLayout: KeyboardLayout = .standard
     var chineseConversionEnabled: Bool = false
+    // P3 fix #5 (XCTest/machine-preference isolation, see
+    // ~/.claude/plans/zhuyin-ime-personal.md's P3 fix #5): these upstream
+    // tests know nothing about mixedScript and never save/restore its
+    // preferences themselves, so on a machine that already has
+    // MixedScriptEnabled=1 in its real plist (Lman dogfoods a master
+    // build) they would otherwise inherit that value and see mixedScript
+    // rewrite readings it never used to (e.g. testInvalidBpmf's "ni4"
+    // becomes a Rule-A literal run instead of the upstream
+    // EmptyIgnoringPreviousState). Forced off here regardless of the
+    // machine's real value, which is saved and restored in tearDown --
+    // this never touches the plist's own final on-disk state.
+    var savedMixedScriptEnabled = false
+    var savedLatinCompletionEnabled = true
+    var savedLatinLearnTypedWords = true
 
     override func setUpWithError() throws {
         savedKeyboardLayout = Preferences.keyboardLayout
         chineseConversionEnabled = Preferences.chineseConversionEnabled
+        savedMixedScriptEnabled = Preferences.mixedScriptEnabled
+        savedLatinCompletionEnabled = Preferences.latinCompletionEnabled
+        savedLatinLearnTypedWords = Preferences.latinLearnTypedWords
         Preferences.chineseConversionEnabled = false
         Preferences.keyboardLayout = .standard
+        Preferences.mixedScriptEnabled = false
+        Preferences.latinCompletionEnabled = false
+        Preferences.latinLearnTypedWords = false
         LanguageModelManager.loadDataModels()
         handler = KeyHandler()
         handler.inputMode = .bopomofo
@@ -50,6 +70,9 @@ class KeyHandlerBopomofoTests: XCTestCase {
     override func tearDownWithError() throws {
         Preferences.chineseConversionEnabled = chineseConversionEnabled
         Preferences.keyboardLayout = savedKeyboardLayout
+        Preferences.mixedScriptEnabled = savedMixedScriptEnabled
+        Preferences.latinCompletionEnabled = savedLatinCompletionEnabled
+        Preferences.latinLearnTypedWords = savedLatinLearnTypedWords
     }
 
     func testSyncWithPreferences() {

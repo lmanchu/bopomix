@@ -33,22 +33,16 @@ import XCTest
 /// plumbing that the engine-level LatinLexicon/MixedScriptTracker tests
 /// cannot see.
 ///
-/// Word choice discipline: `LatinLexicon`'s built-in store and, more
-/// importantly, its *user* store (`rememberWord`) are process-wide globals
-/// that outlive any one test (see docs/REVERIFY-P1-2026-09-10.md's R12) --
-/// an explicit Tab/candidate pick in *any* test file that runs in the same
-/// process permanently promotes that word to the user's own lexicon (tier
-/// 0), which would silently change another test's "top completion" if it
-/// reused the same word. Every word this file picks anything for is
-/// therefore either unique to this file or, for the Rule-B word, one of
-/// the 15 dictionary-reachable ones (docs/REVERIFY-P1-2026-09-10.md's R10)
-/// that MixedScriptKeyHandlerTests.swift does not already claim ("ell",
-/// "full", "all"). Assertions about *which* word wins prefer dynamic
-/// capture (read the tooltip/candidate list, then assert on what was
-/// captured) over hard-coding a specific dictionary word, for the same
-/// reason MixedScriptKeyHandlerTests' composingBufferAfterTypingFresh()
-/// does: the ranking data (SCOWL tiers) is not something a test should be
-/// pinned to.
+/// Word choice: assertions about *which* word wins a completion prefer
+/// dynamic capture (read the tooltip/candidate list, then assert on what
+/// was captured) over hard-coding a specific dictionary word, since the
+/// ranking data (SCOWL tiers) is not something a test should be pinned to
+/// -- see MixedScriptKeyHandlerTests' composingBufferAfterTypingFresh()
+/// for the same reasoning. Cross-test lexicon pollution (an explicit
+/// Tab/candidate pick used to permanently promote a word into every later
+/// test sharing this process, docs/REVERIFY-P1-2026-09-10.md's R12) no
+/// longer constrains word choice here: setUpWithError calls
+/// LanguageModelManager.resetLatinLexiconForTesting() before every test.
 class LatinCompletionKeyHandlerTests: XCTestCase {
 
     var handler = KeyHandler()
@@ -111,6 +105,11 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         Preferences.useCustomUserPhraseLocation = true
         Preferences.customUserPhraseLocation = folder.path
 
+        // P3 fix #6 (see docs/REVERIFY-P1-2026-09-10.md's R12): reset the
+        // process-wide Latin lexicon before every test so this file's
+        // tests neither see nor leave behind pollution shared with any
+        // other KeyHandler-level XCTest target in the same process.
+        LanguageModelManager.resetLatinLexiconForTesting()
         LanguageModelManager.loadDataModels()
         try waitForLatinLexicon()
 
@@ -270,6 +269,35 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         XCTAssertNil(predictedCompletion, "\(state)")
     }
 
+    /// P3 fix #3 (see ~/.claude/plans/zhuyin-ime-personal.md's P3 fix #3
+    /// and KeyHandler's _isAlreadyCompleteWord:): once a pending run is
+    /// itself already a recognized word ranked at least as well as the
+    /// best longer completion sharing its prefix, that counts as "the
+    /// user finished typing this word" -- no prediction tooltip, and
+    /// Tab/Shift+Tab both fall through to ordinary (no-completion) P1
+    /// semantics rather than growing it further. "acer" is tech-seed
+    /// ranked far ahead of every longer dictionary word sharing its
+    /// prefix (e.g. "acerbic"), so it is a reliable example regardless of
+    /// the dictionary's own SCOWL-tier data (see
+    /// MixedScriptKeyHandlerTests.swift's testTabDoesNotExtendACompleteWord
+    /// for the KeyHandler-level composingBuffer/lexicon-file assertions
+    /// this test does not duplicate).
+    func testTooltipAndTabAreBothSuppressedForAnAlreadyCompleteWord() {
+        type("acer")
+        XCTAssertNil(predictedCompletion, "\(state)")
+
+        pressTab()
+        XCTAssertEqual(composingBuffer, "acer")
+        XCTAssertFalse(state is InputState.ChoosingCandidate, "\(state)")
+
+        resetSession()
+        type("acer")
+        pressShiftTab()
+        XCTAssertFalse(
+            state is InputState.ChoosingCandidate,
+            "Shift+Tab must not offer completions for an already-complete word either: \(state)")
+    }
+
     // MARK: - Tab accepts the top completion and typing continues
 
     func testTabAcceptsTopCompletionAndContinuesTyping() {
@@ -325,12 +353,11 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     // MARK: - Rule B: Tab flips to English, Tab again completes
 
     /// "coo" is one of the 15 dictionary-reachable Rule-B words (see
-    /// docs/REVERIFY-P1-2026-09-10.md's R10) not already claimed by
-    /// MixedScriptKeyHandlerTests.swift ("ell"/"full"/"all"). Its shape
-    /// stays alive the whole time (rule B, not rule A), so the *first*
-    /// Tab press must still do exactly what P1 always did -- flip to the
-    /// English form -- and only a *second* Tab press (this node now
-    /// showing plain ASCII) should look for a completion.
+    /// docs/REVERIFY-P1-2026-09-10.md's R10). Its shape stays alive the
+    /// whole time (rule B, not rule A), so the *first* Tab press must
+    /// still do exactly what P1 always did -- flip to the English form --
+    /// and only a *second* Tab press (this node now showing plain ASCII)
+    /// should look for a completion.
     func testRuleBFlipThenTabCompletesFurther() {
         type("coo ")
         XCTAssertEqual(composingBuffer, "黑")
@@ -342,20 +369,12 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         XCTAssertTrue(composingBuffer.hasPrefix("coo"), composingBuffer)
     }
 
-    /// A different Rule-B word from testRuleBFlipThenTabCompletesFurther's
-    /// "coo" on purpose (see this file's word-choice discipline note at
-    /// the top): that test's first Tab press teaches "coo" into the
-    /// process-wide user lexicon (fixNodeWithReading: learns any actual
-    /// mixedScript pick), which would make a *later* "coo " in this test
-    /// auto-commit as English immediately (onBoundary()) rather than
-    /// showing the Chinese default this test wants to start from. "zoo"
-    /// (also one of the 15) is avoided too: its key sequence shares
-    /// MixedScriptKeyHandlerTests.swift's "zo " tone-1-syllable reading
-    /// (see testB1_ToneOneSyllablesThatAreAlsoEnglishWordsStayChinese),
-    /// so cycling/observing a candidate for it here would leak a
-    /// UserOverrideModel preference into that unrelated test -- found by
-    /// running the full suite, not by inspection. "ssl" shares no prefix
-    /// with any syllable another test in this repo already exercises.
+    /// "ssl" rather than "coo"/"zoo" here only because "ssl " (fed through
+    /// the real BopomofoReadingBuffer, not just MixedScriptTracker) is not
+    /// itself a tone-1 syllable another test in this repo already
+    /// exercises -- unrelated to lexicon pollution, which
+    /// resetLatinLexiconForTesting() rules out for every test regardless
+    /// of word choice.
     ///
     /// The second Tab must not complete. It is free to do whatever P1's
     /// ordinary cycling does with its next candidate (which may well be
@@ -624,24 +643,185 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         return result
     }
 
+    /// One token's per-letter completability simulation, shared by both
+    /// the plain and "with history" passes below. Types `token` (lowered
+    /// first -- P3 fix #4: Shift-typed uppercase takes the separate,
+    /// unrelated upstream "force English" path that never touches
+    /// MixedScriptTracker at all, so this only ever needs to evaluate the
+    /// lowercase path a real user's lowercase keystrokes would hit) one
+    /// letter at a time into a fresh session, and records the first
+    /// prefix length at which the completion tooltip's top-1 prediction
+    /// equals the token.
+    private struct TokenOutcome {
+        /// Prefix length at which top-1 first equalled the token, or nil
+        /// if it never did (tried up to, but not including, the full
+        /// token -- complete() only returns strictly-longer words, so the
+        /// full-length prefix could never complete to itself anyway).
+        let completableAtLetter: Int?
+        let tokenLength: Int
+    }
+
+    private func simulateCompletion(of token: String) -> TokenOutcome {
+        let lower = token.lowercased()
+        resetSession()
+        for k in 1..<lower.count {
+            let letter = String(lower[lower.index(lower.startIndex, offsetBy: k - 1)])
+            type(letter)
+            if let predicted = predictedCompletion, predicted.lowercased() == lower {
+                return TokenOutcome(completableAtLetter: k, tokenLength: lower.count)
+            }
+        }
+        return TokenOutcome(completableAtLetter: nil, tokenLength: lower.count)
+    }
+
+    /// P3 fix #4: eligible for LatinLexicon lookups the same way
+    /// KeyHandler's _learnTypedLatinWordIfEligible: gates natural-typing
+    /// learning (see Preferences.latinLearnTypedWords's doc) -- pure
+    /// ASCII letters, length >= 3. Corpus English tokens are expected to
+    /// already look like this, but a stray punctuation-attached token
+    /// should not be miscategorized or fed to acceptLatinCompletion(value:).
+    private func isEligibleLatinToken(_ token: String) -> Bool {
+        token.count >= 3 && token.allSatisfy { $0.isASCII && $0.isLetter }
+    }
+
+    /// Coarse, deliberately simple suffix-stripping heuristic -- not a
+    /// real lemmatizer -- used only to guess whether an inflected form
+    /// missing from the dictionary might still have its lemma present
+    /// (P3 fix #4's "inflected form" category). Static so
+    /// UncompletableCategory.classify(_:lower:) below can call it without
+    /// an instance.
+    private static func plausibleLemmas(of lower: String) -> [String] {
+        var candidates: [String] = []
+        if lower.hasSuffix("ies"), lower.count > 4 {
+            candidates.append(String(lower.dropLast(3)) + "y")
+        }
+        if lower.hasSuffix("es"), lower.count > 3 {
+            candidates.append(String(lower.dropLast(2)))
+        }
+        if lower.hasSuffix("s"), lower.count > 2 {
+            candidates.append(String(lower.dropLast(1)))
+        }
+        if lower.hasSuffix("ing"), lower.count > 4 {
+            let stem = String(lower.dropLast(3))
+            candidates.append(stem)
+            candidates.append(stem + "e")
+        }
+        if lower.hasSuffix("ed"), lower.count > 3 {
+            let stem = String(lower.dropLast(2))
+            candidates.append(stem)
+            candidates.append(stem + "e")
+        }
+        return candidates
+    }
+
+    private enum UncompletableCategory {
+        /// Original token has an uppercase letter (a corpus-cased proper
+        /// noun/acronym signal), or its lowercase form is not a
+        /// recognized dictionary word at all.
+        case properNounOrAbbreviation
+        /// Lowercase form is not a dictionary word, but a plausible
+        /// suffix-stripped lemma of it is -- an inflected form the
+        /// dictionary is missing. P3 fix #1's SCOWL word list (which
+        /// includes inflected forms directly, unlike the old web2-based
+        /// one) should drive this toward 0.
+        case inflectedForm
+        /// The lowercase form *is* a recognized dictionary word, but no
+        /// prefix of it ever ranked it as the top-1 completion -- a
+        /// ranking artifact (a different, better-ranked word shares every
+        /// tested prefix), not a missing-word problem.
+        case other
+
+        /// `token` is the corpus form (case as written); `lower` is
+        /// already lowercased (callers already have it, no need to
+        /// recompute).
+        static func classify(_ token: String, lower: String) -> UncompletableCategory {
+            let hasUppercase = token.contains { $0.isUppercase }
+            let isDictionaryWord = LanguageModelManager.isLatinWord(forTesting: lower)
+            if hasUppercase || !isDictionaryWord {
+                if !hasUppercase {
+                    // Only worth guessing a lemma for a token that was
+                    // already lowercase in the source -- an
+                    // uppercase-in-source token is a proper
+                    // noun/abbreviation regardless of whether some lemma
+                    // of it happens to also be a dictionary word.
+                    let lemmas = LatinCompletionKeyHandlerTests.plausibleLemmas(of: lower)
+                    if lemmas.contains(where: { LanguageModelManager.isLatinWord(forTesting: $0) }) {
+                        return .inflectedForm
+                    }
+                }
+                return .properNounOrAbbreviation
+            }
+            return .other
+        }
+    }
+
+    private struct EvalOutcome {
+        var completableAtOrBelow: [Int: Int] = [2: 0, 3: 0, 4: 0]
+        var neverCompletable = 0
+        var totalKeystrokesSaved = 0
+        var total = 0
+        var properNounOrAbbreviation = 0
+        var inflectedForm = 0
+        var other = 0
+    }
+
+    private func evaluate(_ token: String, into outcome: inout EvalOutcome) {
+        outcome.total += 1
+        let lower = token.lowercased()
+        let result = simulateCompletion(of: token)
+        if let k = result.completableAtLetter {
+            for threshold in [2, 3, 4] where k <= threshold {
+                outcome.completableAtOrBelow[threshold]! += 1
+            }
+            // The letters not typed, minus the one keystroke (Tab) spent
+            // accepting the completion.
+            outcome.totalKeystrokesSaved += max(0, result.tokenLength - k - 1)
+        } else {
+            outcome.neverCompletable += 1
+            switch UncompletableCategory.classify(token, lower: lower) {
+            case .properNounOrAbbreviation: outcome.properNounOrAbbreviation += 1
+            case .inflectedForm: outcome.inflectedForm += 1
+            case .other: outcome.other += 1
+            }
+        }
+    }
+
+    private func reportTable(_ outcome: EvalOutcome) -> String {
+        let total = outcome.total
+        func pct(_ n: Int) -> String {
+            total == 0 ? "n/a" : String(format: "%.1f", Double(n) / Double(total) * 100)
+        }
+        let avgSaved = total == 0 ? 0 : Double(outcome.totalKeystrokesSaved) / Double(total)
+        return """
+            | metric | value |
+            |---|---|
+            | completable within 2 letters | \(outcome.completableAtOrBelow[2]!)/\(total) = \(pct(outcome.completableAtOrBelow[2]!))% |
+            | completable within 3 letters | \(outcome.completableAtOrBelow[3]!)/\(total) = \(pct(outcome.completableAtOrBelow[3]!))% |
+            | completable within 4 letters | \(outcome.completableAtOrBelow[4]!)/\(total) = \(pct(outcome.completableAtOrBelow[4]!))% |
+            | never completable | \(outcome.neverCompletable)/\(total) = \(pct(outcome.neverCompletable))% |
+            | \u{2003}- proper noun / abbreviation (uppercase in source, or not in the dictionary at all) | \(outcome.properNounOrAbbreviation) |
+            | \u{2003}- inflected form (lemma in the dictionary, inflected form is not) | \(outcome.inflectedForm) |
+            | \u{2003}- other (a dictionary word, but never ranked top-1 at any tested prefix) | \(outcome.other) |
+            | average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | \(String(format: "%.2f", avgSaved)) |
+            """
+    }
+
     /// How many letters of an English token does the user actually have
-    /// to type before Tab would complete it, and how does that change
-    /// with completion on vs off, on eval200 (the only Traditional-
-    /// Mandarin-plus-real-project-vocabulary corpus this repo has). This
-    /// is a measurement/report, not a correctness gate: skipped outright
-    /// when the private corpus is not present, and it does not assert
-    /// thresholds the way testEval200ThroughKeyHandler does (there is no
-    /// prior baseline to hold this to yet -- this run creates one).
-    ///
-    /// Caveat this test accepts rather than engineers around: LatinLexicon
-    /// is a process-wide global (docs/REVERIFY-P1-2026-09-10.md's R12),
-    /// so if XCTest happens to run this file's other tests first (it
-    /// currently does -- they sort before "E" alphabetically), a handful
-    /// of eval200 tokens that happen to share a prefix with a word one of
-    /// those tests explicitly accepted ("throughput" et al for "th") measure
-    /// as artificially more completable than a fresh install would see.
-    /// Acceptable for an aggregate statistic over hundreds of tokens; would
-    /// not be for a single hard-coded assertion.
+    /// to type before Tab would complete it, on eval200 (the only
+    /// Traditional-Mandarin-plus-real-project-vocabulary corpus this repo
+    /// has) -- measured two ways (P3 fix #4): "no history" evaluates
+    /// every token cold, against just the built-in dictionary/tech seed;
+    /// "with history" replays the corpus in row order, and after
+    /// evaluating each row's tokens, teaches every eligible one into the
+    /// user lexicon (mirroring Preferences.latinLearnTypedWords's
+    /// production rule -- see isEligibleLatinToken:) before moving to the
+    /// next row, so a word's *second* occurrence should be more
+    /// completable than its first. This is a measurement/report, not a
+    /// correctness gate (except the pure-Chinese control below): skipped
+    /// outright when the private corpus is not present, and neither table
+    /// asserts thresholds the way testEval200ThroughKeyHandler does --
+    /// there is no prior baseline to hold either to yet, this run creates
+    /// one for both.
     func testEval200LatinCompletion() throws {
         let corpusPath = NSHomeDirectory() + "/Dev/mixime-private/eval200.tsv"
         guard FileManager.default.fileExists(atPath: corpusPath) else {
@@ -650,42 +830,34 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         let rows = try loadEvalRows(at: corpusPath)
         XCTAssertFalse(rows.isEmpty)
 
-        let tokens = rows.flatMap { $0.englishTokens }.filter { $0.count >= 3 }
-        XCTAssertFalse(tokens.isEmpty)
-
-        var completableAtOrBelow: [Int: Int] = [2: 0, 3: 0, 4: 0]
-        var neverCompletable = 0
-        var totalKeystrokesSaved = 0
-
-        for token in tokens {
-            let lower = token.lowercased()
-            resetSession()
-            var foundAtK: Int?
-            for k in 1..<lower.count {
-                let letter = String(lower[lower.index(lower.startIndex, offsetBy: k - 1)])
-                type(letter)
-                if let predicted = predictedCompletion, predicted.lowercased() == lower {
-                    foundAtK = k
-                    break
-                }
-            }
-            if let k = foundAtK {
-                for threshold in [2, 3, 4] where k <= threshold {
-                    completableAtOrBelow[threshold]! += 1
-                }
-                // The letters not typed, minus the one keystroke (Tab)
-                // spent accepting the completion.
-                totalKeystrokesSaved += max(0, lower.count - k - 1)
-            } else {
-                neverCompletable += 1
-            }
+        // --- No history: every token evaluated cold ---
+        var noHistory = EvalOutcome()
+        let allTokens = rows.flatMap { $0.englishTokens }.filter { $0.count >= 3 }
+        XCTAssertFalse(allTokens.isEmpty)
+        for token in allTokens {
+            evaluate(token, into: &noHistory)
         }
 
-        let total = tokens.count
-        func pct(_ n: Int) -> String {
-            String(format: "%.1f", Double(n) / Double(total) * 100)
+        // --- With history: replay in corpus order, learning as we go ---
+        // Reset first so this pass starts from the same clean dictionary
+        // the "no history" pass did, rather than whatever residue (there
+        // should be none, since evaluate() never accepts anything) the
+        // pass above left behind.
+        LanguageModelManager.resetLatinLexiconForTesting()
+        LanguageModelManager.loadDataModels()
+        try waitForLatinLexicon()
+        var withHistory = EvalOutcome()
+        for row in rows {
+            let eligibleTokens = row.englishTokens.filter { $0.count >= 3 }
+            for token in eligibleTokens {
+                evaluate(token, into: &withHistory)
+            }
+            for token in eligibleTokens where isEligibleLatinToken(token) {
+                resetSession()
+                handler.acceptLatinCompletion(value: token.lowercased())
+            }
         }
-        let avgSaved = Double(totalKeystrokesSaved) / Double(total)
+        resetSession()
 
         // --- Pure-Chinese ON=OFF, character by character ---
         var zhMismatchedRows = 0
@@ -730,20 +902,32 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
 
             Produced by `LatinCompletionKeyHandlerTests.testEval200LatinCompletion`
             (`xcodebuild -scheme McBopomofo test`). For every eval200 English
-            token of length >= 3 (\(total) of them), simulates typing it letter
-            by letter into a real `KeyHandler` and records the first prefix
-            length at which the completion tooltip's top-1 prediction equals
-            the token -- i.e. how many letters the user would actually have
-            typed before Tab completes it. See this test's doc comment for
-            the one caveat on cross-test lexicon state this number carries.
+            token of length >= 3, simulates typing it letter by letter into
+            a real `KeyHandler` and records the first prefix length at which
+            the completion tooltip's top-1 prediction equals the token --
+            i.e. how many letters the user would actually have typed before
+            Tab completes it. Two passes (P3 fix #4): "no history" evaluates
+            every token cold; "with history" replays the corpus in row
+            order and, after evaluating each row, teaches its eligible
+            tokens into the user lexicon the same way
+            Preferences.latinLearnTypedWords does in production, so a
+            word's second occurrence should complete sooner than its first.
+            "never completable" tokens are further split into: proper
+            noun/abbreviation (uppercase in the source, or missing from the
+            dictionary entirely), inflected form (a suffix-stripped lemma
+            guess is a dictionary word but the exact form typed is not --
+            P3 fix #1's SCOWL-sourced word list, which includes inflected
+            forms directly, should keep this near 0), and other (a real
+            dictionary word that never ranked top-1 at any tested prefix --
+            a ranking artifact, not a missing word).
 
-            | metric | value |
-            |---|---|
-            | completable within 2 letters | \(completableAtOrBelow[2]!)/\(total) = \(pct(completableAtOrBelow[2]!))% |
-            | completable within 3 letters | \(completableAtOrBelow[3]!)/\(total) = \(pct(completableAtOrBelow[3]!))% |
-            | completable within 4 letters | \(completableAtOrBelow[4]!)/\(total) = \(pct(completableAtOrBelow[4]!))% |
-            | never completable (no dictionary match at any prefix) | \(neverCompletable)/\(total) = \(pct(neverCompletable))% |
-            | average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | \(String(format: "%.2f", avgSaved)) |
+            ### No history
+
+            \(reportTable(noHistory))
+
+            ### With history (learning applied between rows)
+
+            \(reportTable(withHistory))
 
             ### Pure-Chinese control: ON vs OFF, character by character
 
