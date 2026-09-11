@@ -163,7 +163,7 @@ visible so the difference is not hidden.
 | F1 row-level (all tokens kept) | 167/200 = 83.5% | 160/200 = 80.0% |
 | zh accuracy within the mixed sentence | 3901/4586 = 85.1% | 1845/4586 = 40.2% |
 | rows with a zh length mismatch | 37/200 | 146/200 |
-| latency per row (avg / p50 / p95 / max) | 6513us / 6660us / 10955us / 14982us | 8307us / 8178us / 14297us / 19474us |
+| latency per row (avg / p50 / p95 / max) | 6337us / 6355us / 10667us / 14810us | 8172us / 8077us / 14387us / 19236us |
 
 ### Pure-Chinese control: does turning this on damage normal typing?
 
@@ -178,7 +178,7 @@ while the harness's own F2 number stayed flat, because F2's
 |---|---|---|
 | **zh character accuracy** | **4369/4586 = 95.3%** | 4369/4586 = 95.3% |
 | rows with a zh length mismatch | 1/200 | 1/200 |
-| latency per row (avg / p50 / p95 / max) | 5295us / 5387us / 9468us / 13820us | 5039us / 5090us / 8879us / 13127us |
+| latency per row (avg / p50 / p95 / max) | 5218us / 5268us / 9302us / 13439us | 4990us / 5035us / 9148us / 12692us |
 
 Note that the "zh accuracy within the mixed sentence" row in the
 first table is *not* comparable to 95.3%: it is measured on
@@ -222,16 +222,17 @@ lowercase forms are ordinary dictionary entries. The simulation
 types `lowercased()` anyway, so casing says nothing about
 whether the lookup could have succeeded. Corrected, **62% of
 never-completable tokens are ranking misses, not missing
-words** (96/155 cold, 83/135 with history), which points P4 at
-a real frequency source rather than at a bigger dictionary.
+words**, which points P4 at a real frequency source rather than
+at a bigger dictionary.
 
-The small drop against the previous run (40.6% -> 40.3% within
-four letters, 154 -> 155 never completable) is P3 fix #3's
-tightened "already a finished word" gate: a run that is itself a
-finished word now shows no prediction at all, so a token whose
-prefix passes through one (`code` on the way to `codes`) has to
-be typed one letter further. That is the intended trade -- the
-alternative was Tab rewriting `code` into `codesign`.
+The small drop against the 2026-09-11 run (40.6% -> 40.3%
+within four letters, 154 -> 155 never completable) is P3 fix
+#3's tightened "already a finished word" gate: a run that is
+itself a finished word now shows no prediction at all, so a
+token whose prefix passes through one (`code` on the way to
+`codes`) has to be typed one letter further. That is the
+intended trade -- the alternative was Tab rewriting `code` into
+`codesign`.
 
 ### No history
 
