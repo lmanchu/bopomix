@@ -28,6 +28,9 @@ namespace McBopomofo::MixedScript {
 Verdict MixedScriptTracker::feedKey(
     const Formosa::Mandarin::BopomofoKeyboardLayout* layout, char key) {
   latinRun_.push_back(key);
+  // The run's text just changed, so any earlier acceptCompletion() no
+  // longer describes it -- see latinRunAlreadyRemembered()'s doc.
+  alreadyRemembered_ = false;
 
   if (latinLocked_) {
     return Verdict::kLatin;
@@ -72,6 +75,9 @@ void MixedScriptTracker::popLastLatinChar() {
   }
   if (latinLocked_) {
     latinRun_.pop_back();
+    // The run's text just changed (shortened), so any earlier
+    // acceptCompletion() no longer describes it.
+    alreadyRemembered_ = false;
     if (latinRun_.empty()) {
       reset();
     }
@@ -83,12 +89,14 @@ void MixedScriptTracker::popLastLatinChar() {
 void MixedScriptTracker::acceptCompletion(const std::string& word) {
   latinRun_ = word;
   latinLocked_ = true;
+  alreadyRemembered_ = true;
 }
 
 void MixedScriptTracker::reset() {
   shape_.reset();
   latinRun_.clear();
   latinLocked_ = false;
+  alreadyRemembered_ = false;
 }
 
 bool IsAllAsciiLetters(const std::string& value) {

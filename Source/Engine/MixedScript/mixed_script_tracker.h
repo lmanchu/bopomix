@@ -158,8 +158,23 @@ class MixedScriptTracker {
   // the run regardless, so calling it is never a no-op: latinRun()
   // reflects `word` and isLatinLocked() is true either way afterward, and
   // further letters typed continue to extend it as English exactly like
-  // any other locked run.
+  // any other locked run. Also marks the run as "already remembered" (see
+  // latinRunAlreadyRemembered()), since accepting a completion already
+  // writes it to the user's lexicon (KeyHandler's
+  // _acceptLatinCompletionWord:); feedKey()/popLastLatinChar() clear that
+  // flag again the moment the run's text changes.
   void acceptCompletion(const std::string& word);
+
+  // P3 "learn from what you actually type" (see
+  // zhuyin-ime-personal.md's P3 fix #2): true if the run's *current* text
+  // was already explicitly written to the user's lexicon by a completion
+  // accept (acceptCompletion()) and has not changed since. KeyHandler's
+  // _commitMixedScriptLatinRun uses this to avoid double-counting a word
+  // Tab/the candidate window already remembered when that same run later
+  // reaches an ordinary boundary commit (Enter/space/punctuation) --
+  // without it, accepting "th" -> "throughput" via Tab and then pressing
+  // Enter would bump "throughput"'s use count twice for one accept.
+  bool latinRunAlreadyRemembered() const { return alreadyRemembered_; }
 
   void reset();
 
@@ -168,6 +183,7 @@ class MixedScriptTracker {
   BopomofoShapeTracker shape_;
   std::string latinRun_;
   bool latinLocked_ = false;
+  bool alreadyRemembered_ = false;
 };
 
 // True if `value` is non-empty and every byte is an ASCII letter. Used at

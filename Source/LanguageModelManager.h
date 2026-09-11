@@ -59,6 +59,25 @@ NS_ASSUME_NONNULL_BEGIN
 /// dictionary-backed rules have to wait for this rather than assume
 /// +loadDataModels left everything ready.
 @property (class, readonly, nonatomic) BOOL latinLexiconReady;
+/// Undoes whatever loadBuiltinWordList()/loadUserWordList()/rememberWord()
+/// have accumulated in the process-wide Latin lexicon and clears the
+/// "already started" load gate, so the next access re-triggers a full
+/// fresh load from disk. Fixes docs/REVERIFY-P1-2026-09-10.md's R12: every
+/// XCTest KeyHandler-level test target shares this one process-wide
+/// object, so an explicit Tab/candidate pick in one test silently changed
+/// another test's "top completion" ranking whenever both ran in the same
+/// process. Callers should set Preferences.useCustomUserPhraseLocation and
+/// Preferences.customUserPhraseLocation to a throwaway folder *before*
+/// calling this (matching the existing per-test temp-folder pattern),
+/// since the reload that follows re-resolves +latinUserWordListPath from
+/// whatever is current.
++ (void)resetLatinLexiconForTesting;
+/// True if `word` is a known word in the process-wide Latin lexicon
+/// (builtin or user store, matching LatinLexicon::isWord()). Exposes just
+/// enough of the lexicon to Swift XCTest code for P3's eval categorization
+/// (LatinCompletionKeyHandlerTests' testEval200LatinCompletion) without
+/// needing full C++ interop from a .swift file.
++ (BOOL)isLatinWordForTesting:(NSString *)word;
 @end
 
 @interface LanguageModelManager ()

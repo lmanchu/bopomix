@@ -297,6 +297,14 @@ bool LatinLexicon::persistUserWords() const {
   return file.good();
 }
 
+void LatinLexicon::reset() {
+  builtinRank_.clear();
+  userWords_.clear();
+  sortedWords_.clear();
+  userWordListPath_.clear();
+  nextBuiltinRank_ = 0;
+}
+
 bool LatinLexicon::rememberWord(const std::string& word) {
   if (word.size() < 2) {
     return true;

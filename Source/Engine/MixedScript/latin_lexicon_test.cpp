@@ -298,6 +298,54 @@ TEST(LatinLexiconTest, RememberWordRewritesExistingCountInPlace) {
   std::filesystem::remove(userPath);
 }
 
+// Testing-only reset(), added to fix docs/REVERIFY-P1-2026-09-10.md's R12
+// (LanguageModelManager's gLatinLexicon is a process-wide global every
+// XCTest KeyHandler-level test target shares -- see
+// resetLatinLexiconForTesting()). Must undo everything loadBuiltinWordList()/
+// loadUserWordList()/rememberWord() can accumulate.
+TEST(LatinLexiconTest, ResetClearsBuiltinAndUserWordsAndRankBookkeeping) {
+  TempFile builtin("acer\tzero\n");
+  LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(builtin.path()));
+  lexicon.rememberWord("openrouter");
+  ASSERT_TRUE(lexicon.isWord("acer"));
+  ASSERT_TRUE(lexicon.isUserWord("openrouter"));
+
+  lexicon.reset();
+
+  EXPECT_FALSE(lexicon.isWord("acer"));
+  EXPECT_FALSE(lexicon.isUserWord("openrouter"));
+  EXPECT_EQ(lexicon.builtinWordCount(), 0u);
+  EXPECT_EQ(lexicon.userWordCount(), 0u);
+  EXPECT_FALSE(lexicon.isPrefix("ac"));
+  EXPECT_EQ(lexicon.rank("acer"), -1);
+
+  // The instance is fully reusable afterward, including rank bookkeeping
+  // starting over from 0 rather than continuing from where it left off.
+  TempFile builtin2("fresh\n");
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(builtin2.path()));
+  EXPECT_EQ(lexicon.rank("fresh"), 0);
+}
+
+// setUserWordListPath() is part of the state reset() must clear too, or a
+// reset lexicon would keep writing rememberWord() calls to a path from a
+// previous test's now-deleted temp folder until the next explicit
+// setUserWordListPath() call.
+TEST(LatinLexiconTest, ResetClearsUserWordListPath) {
+  std::filesystem::path userPath =
+      std::filesystem::temp_directory_path() /
+      "mixime_latin_lexicon_test_reset_path.txt";
+  std::filesystem::remove(userPath);
+
+  LatinLexicon lexicon;
+  lexicon.setUserWordListPath(userPath.string());
+  lexicon.reset();
+  EXPECT_TRUE(lexicon.rememberWord("openrouter"));
+  // persistUserWords() treats an empty path as "nothing to do", so the
+  // file must not have been created by the rememberWord() call above.
+  EXPECT_FALSE(std::filesystem::exists(userPath));
+}
+
 // --- complete() ---
 
 TEST(LatinLexiconTest, CompleteReturnsLongerWordsOnly) {
