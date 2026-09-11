@@ -39,16 +39,6 @@ class MixedScriptKeyHandlerTests: XCTestCase {
 
     var handler = KeyHandler()
 
-    private var savedKeyboardLayout: KeyboardLayout = .standard
-    private var savedMixedScriptEnabled = false
-    private var savedLatinOnSpaceForUserWords = true
-    private var savedAssociatedPhrasesEnabled = false
-    private var savedChineseConversionEnabled = false
-    private var savedEscToCleanInputBuffer = false
-    private var savedKeepReadingUponCompositionError = false
-    private var savedChooseCandidateUsingSpace = true
-    private var savedUseCustomUserPhraseLocation = false
-    private var savedCustomUserPhraseLocation = ""
     private var temporaryUserDataFolder: URL?
 
     // Rolling state for the typing helpers below.
@@ -57,16 +47,12 @@ class MixedScriptKeyHandlerTests: XCTestCase {
     private var errorCount = 0
 
     override func setUpWithError() throws {
-        savedKeyboardLayout = Preferences.keyboardLayout
-        savedMixedScriptEnabled = Preferences.mixedScriptEnabled
-        savedLatinOnSpaceForUserWords = Preferences.mixedScriptLatinOnSpaceForUserWords
-        savedAssociatedPhrasesEnabled = Preferences.associatedPhrasesEnabled
-        savedChineseConversionEnabled = Preferences.chineseConversionEnabled
-        savedEscToCleanInputBuffer = Preferences.escToCleanInputBuffer
-        savedKeepReadingUponCompositionError = Preferences.keepReadingUponCompositionError
-        savedChooseCandidateUsingSpace = Preferences.chooseCandidateUsingSpace
-        savedUseCustomUserPhraseLocation = Preferences.useCustomUserPhraseLocation
-        savedCustomUserPhraseLocation = Preferences.customUserPhraseLocation
+        // Must come before the first Preferences write, and is the only
+        // restore mechanism in this class -- see
+        // LatinCompletionKeyHandlerTests.setUpWithError and
+        // docs/REVIEW-P3-2026-09-11.md's N4 for why writing saved values
+        // back in tearDownWithError was not enough.
+        PreferenceSandbox.install(on: self)
 
         Preferences.keyboardLayout = .standard
         Preferences.mixedScriptEnabled = true
@@ -87,6 +73,11 @@ class MixedScriptKeyHandlerTests: XCTestCase {
         try FileManager.default.createDirectory(
             at: folder, withIntermediateDirectories: true)
         temporaryUserDataFolder = folder
+        // Removed through a teardown block, not tearDownWithError, so a
+        // failing test does not leave the folder behind in $TMPDIR.
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: folder)
+        }
         Preferences.useCustomUserPhraseLocation = true
         Preferences.customUserPhraseLocation = folder.path
 
@@ -108,21 +99,10 @@ class MixedScriptKeyHandlerTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        Preferences.keyboardLayout = savedKeyboardLayout
-        Preferences.mixedScriptEnabled = savedMixedScriptEnabled
-        Preferences.mixedScriptLatinOnSpaceForUserWords = savedLatinOnSpaceForUserWords
-        Preferences.associatedPhrasesEnabled = savedAssociatedPhrasesEnabled
-        Preferences.chineseConversionEnabled = savedChineseConversionEnabled
-        Preferences.escToCleanInputBuffer = savedEscToCleanInputBuffer
-        Preferences.keepReadingUponCompositionError = savedKeepReadingUponCompositionError
-        Preferences.chooseCandidateUsingSpace = savedChooseCandidateUsingSpace
-        Preferences.useCustomUserPhraseLocation = savedUseCustomUserPhraseLocation
-        Preferences.customUserPhraseLocation = savedCustomUserPhraseLocation
-
-        if let folder = temporaryUserDataFolder {
-            try? FileManager.default.removeItem(at: folder)
-            temporaryUserDataFolder = nil
-        }
+        // Preferences are restored by PreferenceSandbox and the throwaway
+        // folder by its own teardown block -- both installed in
+        // setUpWithError, both of which run even when a test fails.
+        temporaryUserDataFolder = nil
     }
 
     /// The Latin word lists load on a background queue (see
@@ -966,7 +946,7 @@ class MixedScriptKeyHandlerTests: XCTestCase {
     /// a longer dictionary word -- but P3 fix #3 also gives it a deliberate
     /// *non*-job here: "acer" is tech-seed ranked ahead of every longer
     /// word sharing its prefix (e.g. "acerbic"), so it counts as an
-    /// already-finished word (see KeyHandler's _isAlreadyCompleteWord:) and
+    /// already-finished word (see KeyHandler's _offeredCompletionFor:lexicon:) and
     /// Tab must leave it alone -- falling through to exactly R5's original
     /// invariant, cycling a single already-committed candidate, which is
     /// not a choice and must not touch latin-user.txt. This is true with
@@ -989,7 +969,7 @@ class MixedScriptKeyHandlerTests: XCTestCase {
     }
 
     /// P3 fix #3 (see ~/.claude/plans/zhuyin-ime-personal.md's P3 fix #3
-    /// and KeyHandler's _isAlreadyCompleteWord:): Tab must not silently
+    /// and KeyHandler's _offeredCompletionFor:lexicon:): Tab must not silently
     /// grow an already-finished word into a longer dictionary entry just
     /// because one happens to share its prefix. Companion to
     /// LatinCompletionKeyHandlerTests.swift's tooltip-focused coverage of

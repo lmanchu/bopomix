@@ -60,6 +60,21 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
 // KeyHandler.h's acceptLatinCompletionWithValue: doc).
 static NSString *const kLatinCompletionReading = @"_latin_completion_";
 
+// P3 learn-from-typing policy (see _learnTypedLatinWordIfEligible:).
+// The length bounds match tools/lexicon/build_lexicon.py's own filter, so
+// learning can never add something the dictionary generator would have
+// thrown away; the sighting count is what keeps a word the dictionary
+// does not know out of latin-user.txt until it has been typed that many
+// separate times (docs/REVIEW-P3-2026-09-11.md's B2).
+static const size_t kMinLearnedLatinWordLength = 3;
+static const size_t kMaxLearnedLatinWordLength = 20;
+static const int kTypedWordSightingsBeforeLearning = 2;
+
+// P3 fix #3's "the user finished typing this word" floor -- see
+// _offeredCompletionFor:lexicon:. Below this, a dictionary hit ("pr", "th") is
+// a prefix in progress, not a finished word.
+static const size_t kMinFinishedLatinWordLength = 3;
+
 @implementation KeyHandler {
     std::shared_ptr<Formosa::Gramambular2::LanguageModel> _emptySharedPtr;
 
@@ -564,9 +579,11 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
     // that letter, so the ASCII range is checked on the full value before
     // anything else looks at rawKey.
     bool isAsciiLetterKey = charCode < 0x80 && charCode >= 'a' && charCode <= 'z';
+    bool isShiftedAsciiLetterKey = charCode < 0x80 && charCode >= 'A' && charCode <= 'Z';
     char rawKey = isAsciiLetterKey ? (char)charCode : 0;
     BOOL mixedScriptDidEndRun = NO;
-    BOOL mixedScriptActive = [self _mixedScriptAvailable] && !input.isShiftHold;
+    BOOL mixedScriptAvailable = [self _mixedScriptAvailable];
+    BOOL mixedScriptActive = mixedScriptAvailable && !input.isShiftHold;
     if (mixedScriptActive) {
         // The word lists load off the key thread, so the lexicon pointer
         // is null until they are ready and rules B/C simply do not fire
@@ -648,6 +665,26 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
         // is about to act on has to reflect that (_handleEnterWithState
         // and friends commit `state.composingBuffer` verbatim).
         state = [self buildInputtingState];
+    } else if (mixedScriptAvailable && input.isShiftHold && isShiftedAsciiLetterKey
+        && _mixedScriptTracker->isLatinLocked()) {
+        // Shift+letter is upstream's own "force English, uppercase"
+        // gesture, and it deliberately keeps mixedScriptActive false
+        // throughout -- but a Rule-A run that is still pending lives only
+        // in the tracker, and the uppercase path further below simply
+        // [self clear]s it along with everything else. Typing "the" then
+        // Shift+A (i.e. "the API", a high-frequency mixed-typing
+        // sequence) therefore lost "the" outright
+        // (docs/REVIEW-P3-2026-09-11.md's B4; a P1-era hole P3 made much
+        // easier to hit). Treat the Shift+letter exactly like any other
+        // non-letter boundary key: commit the pending run into the grid
+        // first -- learning from it, since choosing to start a new
+        // capitalized word is as much a natural end-of-word signal as a
+        // space -- then let the unmodified uppercase path run on a grid
+        // that already contains it.
+        [self _commitMixedScriptLatinRun:YES];
+        mixedScriptDidEndRun = YES;
+        state = [self buildInputtingState];
+        stateCallback(state);
     }
 
     if (!skipBpmfHandling && isValidKey) {
@@ -1152,7 +1189,8 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
 // doc) and the explicit-completion-accept call site (already covered by
 // latinRunAlreadyRemembered() below regardless of what is passed here).
 // Every other caller (space, Enter, punctuation, an arrow key, a
-// tone-digit-driven fallback, force-commit) passes YES.
+// tone-digit-driven fallback, a Shift+letter starting a capitalized word,
+// force-commit) passes YES.
 - (void)_commitMixedScriptLatinRun:(BOOL)mayLearn
 {
     std::string word = _mixedScriptTracker->latinRun();
@@ -1186,6 +1224,11 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
 // persistence failing only logs.
 - (void)_rememberLatinWord:(const std::string&)word
 {
+    [self _rememberLatinWord:word weight:1];
+}
+
+- (void)_rememberLatinWord:(const std::string&)word weight:(int)weight
+{
     McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
     if (lexicon == nullptr) {
         return;
@@ -1196,7 +1239,7 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
     NSString *userWordListPath = [LanguageModelManager latinUserWordListPath];
     lexicon->setUserWordListPath(userWordListPath.UTF8String);
     [LanguageModelManager ensureLatinUserWordListFolder];
-    if (!lexicon->rememberWord(word)) {
+    if (!lexicon->rememberWord(word, weight)) {
         NSLog(@"warning: could not persist latin word to %@", userWordListPath);
     }
 }
@@ -1210,20 +1253,70 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
 // the *pending* run), so a word the user changed their mind about is
 // never recorded, and Rule B's separate "onBoundary() promotes a
 // user-lexicon word" path never calls this either (it is not a Rule-A
-// commit). The length/letters-only checks keep this to actual words
-// rather than stray initials or partial input; IsAllAsciiLetters() also
-// means a Shift-typed forced-uppercase word (upstream's separate "force
-// English" gesture, which never touches _mixedScriptTracker at all) can
-// never reach here in the first place.
+// commit). IsAllAsciiLetters() also means a Shift-typed forced-uppercase
+// word (upstream's separate "force English" gesture, which never touches
+// _mixedScriptTracker at all) can never reach here in the first place.
+//
+// The committed run is only ever a *candidate* for the user lexicon
+// (docs/REVIEW-P3-2026-09-11.md's B2, where every committed run was
+// written straight to disk -- typos, 40-letter mashes, and English runs
+// that had swallowed the following Chinese keys all became permanent
+// top-ranked completions):
+//
+//   (a) length 3..20, lowercase ASCII only, or it is not considered at
+//       all. The upper bound matches tools/lexicon/build_lexicon.py's own
+//       filter, so nothing can be learned that the dictionary generator
+//       would itself have rejected;
+//   (b) a run the lexicon already knows (dictionary, tech seed, or a word
+//       this user has already learned) is recorded immediately;
+//   (c) any other run is staged in memory only (see
+//       LatinLexicon::notePendingTypedWord) and reaches latin-user.txt
+//       only once it has been committed kTypedWordSightingsBeforeLearning
+//       separate times.
+//
+// (c) is the whole defence for the case a run cannot report on itself:
+// a Rule-A run stays locked and keeps absorbing letters until a
+// non-letter key (see MixedScriptTrackerTest's
+// ALockedRunKeepsAbsorbingLettersUntilANonLetterKey), so "acersu" -- an
+// English word with the start of a Chinese syllable glued onto it -- is
+// structurally indistinguishable from a genuine new word when seen once.
+// Requiring the identical string twice, in two separate commits, is the
+// only signal available; a glued-together run essentially never repeats
+// verbatim, a real new word does.
 - (void)_learnTypedLatinWordIfEligible:(const std::string&)word
 {
     if (!Preferences.latinLearnTypedWords) {
         return;
     }
-    if (word.size() < 3 || !McBopomofo::MixedScript::IsAllAsciiLetters(word)) {
+    // Learning is part of the completion feature, so turning completion
+    // off stops the writes too -- without this, the intuitive "switch P3
+    // off" gesture left latin-user.txt still growing
+    // (docs/REVIEW-P3-2026-09-11.md's N3).
+    if (![self _latinCompletionAvailable]) {
         return;
     }
-    [self _rememberLatinWord:word];
+    if (word.size() < kMinLearnedLatinWordLength || word.size() > kMaxLearnedLatinWordLength) {
+        return;
+    }
+    if (!McBopomofo::MixedScript::IsAllAsciiLetters(word)) {
+        return;
+    }
+    McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
+    if (lexicon == nullptr) {
+        return;
+    }
+    if (lexicon->isWord(word)) {
+        [self _rememberLatinWord:word weight:1];
+        return;
+    }
+    int sightings = lexicon->notePendingTypedWord(word);
+    if (sightings < kTypedWordSightingsBeforeLearning) {
+        return;
+    }
+    // The stored score stays "how many times this was seen", so a word
+    // promoted out of staging arrives already carrying the sightings that
+    // earned it rather than looking like a first-time entry.
+    [self _rememberLatinWord:word weight:sightings];
 }
 
 // Puts one literal space into the grid, as its own node, using the same
@@ -1274,34 +1367,63 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
     return [self _mixedScriptAvailable] && Preferences.latinCompletionEnabled;
 }
 
-// P3 fix #3 (see ~/.claude/plans/zhuyin-ime-personal.md's P3 fix #3): true
-// if `word` is itself already a recognized word (builtin or the user's
-// own lexicon) whose own rank is at least as good (numerically <=, lower
-// meaning more frequent/preferred -- see LatinLexicon::rank()) as the
-// best strictly-longer completion sharing its prefix. When this is true,
-// the user has typed a *finished* word and Tab/the completion tooltip
-// must leave it alone rather than silently growing it into something
-// longer just because a rarer, longer dictionary entry happens to share
-// the prefix: "acer" is tech-seed-ranked far ahead of "acerbic", so it
-// counts as finished and Tab must not turn it into "acerbic"; "the" ties
-// every other tier-0 word sharing its prefix, which still counts as "not
-// worse than"; "aweso" is not a word at all, so this is always false for
-// it and "awesome" remains offered.
-- (BOOL)_isAlreadyCompleteWord:(const std::string&)word lexicon:(McBopomofo::MixedScript::LatinLexicon *)lexicon
+// The comparison at the heart of P3 fix #3's "already a finished word"
+// gate (see _offeredCompletionFor:lexicon:), kept separate so callers
+// that have already looked up the top completion do not pay for a second
+// complete() scan of the same prefix range -- the tooltip runs on every
+// keystroke of a Latin run and used to scan twice, once inside the gate
+// and once for the word it shows (docs/REVIEW-P3-2026-09-11.md's N9).
+// Both arguments must already be known words.
+- (BOOL)_isFinishedWord:(const std::string&)word against:(const std::string&)topCompletion lexicon:(McBopomofo::MixedScript::LatinLexicon *)lexicon
 {
-    if (lexicon == nullptr || !lexicon->isWord(word)) {
-        return NO;
+    return lexicon->sourceTier(word) <= lexicon->sourceTier(topCompletion);
+}
+
+// The single "what, if anything, should be offered as the completion of
+// `word`" question every P3 surface asks -- the prediction tooltip, Tab,
+// Shift+Tab, and Tab on an already-committed node all route through here,
+// so none of them can disagree about what is on offer. Returns the top
+// completion, or an empty string when there is none or when `word` is
+// already a finished word.
+//
+// "Finished" (P3 fix #3, see ~/.claude/plans/zhuyin-ime-personal.md)
+// means all three of:
+//
+//  1. at least kMinFinishedLatinWordLength characters. A one- or
+//     two-letter dictionary hit ("pr", "th", "st" are all entries) is a
+//     prefix somebody is still typing, not a word they finished -- the
+//     same reasoning as MixedScriptTracker::kMinAmbiguousWordLength;
+//  2. a recognized word at all (builtin or the user's own store);
+//  3. no strictly-longer completion from a *better source* than the word
+//     itself -- LatinLexicon::sourceTier(), not rank().
+//
+// Condition 3 used to compare raw rank(), which puts every hand-ranked
+// tech-seed term ahead of every dictionary word and so declared finished
+// ordinary words unfinished: "code" (dictionary) lost to "codesign"
+// (seed) and Tab rewrote it, likewise "test" -> "testflight" and "run"'s
+// tooltip permanently suggesting "runway" (docs/REVIEW-P3-2026-09-11.md's
+// B3). sourceTier() ties the seed file with the dictionary's most
+// frequent tier precisely so those stop happening, while a genuinely
+// rarer word ("ell", "th") can still be grown into a common one.
+- (std::string)_offeredCompletionFor:(const std::string&)word lexicon:(McBopomofo::MixedScript::LatinLexicon *)lexicon
+{
+    if (lexicon == nullptr) {
+        return std::string();
     }
     std::vector<std::string> topCompletion = lexicon->complete(word, 1);
     if (topCompletion.empty()) {
-        return NO;
+        return std::string();
     }
-    return lexicon->rank(word) <= lexicon->rank(topCompletion[0]);
+    if (word.size() >= kMinFinishedLatinWordLength && lexicon->isWord(word)
+        && [self _isFinishedWord:word against:topCompletion[0] lexicon:lexicon]) {
+        return std::string();
+    }
+    return topCompletion[0];
 }
 
 // Whether the pending Latin run has at least one longer completion right
-// now that is actually worth offering (see _isAlreadyCompleteWord:'s P3
-// fix #3 gate). Used only to decide Tab's precedence at the top of
+// now that is actually worth offering (see _offeredCompletionFor:lexicon:'s
+// P3 fix #3 gate). Used only to decide Tab's precedence at the top of
 // handleInput: (see the mixedScriptActive boundary-commit branch's doc):
 // Tab must NOT force-commit a pending run as a boundary key when it is
 // instead about to accept a completion for it, but must still do exactly
@@ -1312,14 +1434,8 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
 - (BOOL)_hasLatinCompletionForPendingRun
 {
     McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
-    if (lexicon == nullptr) {
-        return NO;
-    }
     std::string run = _mixedScriptTracker->latinRun();
-    if ([self _isAlreadyCompleteWord:run lexicon:lexicon]) {
-        return NO;
-    }
-    return !lexicon->complete(run, 1).empty();
+    return ![self _offeredCompletionFor:run lexicon:lexicon].empty();
 }
 
 // True if (reading, value) is one of the Latin alternates this
@@ -1395,11 +1511,16 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
 // window -- see acceptLatinCompletionWithValue:). Mirrors
 // fixNodeWithReading:'s mixedScript-learning block: only Tab/the
 // candidate window ever calls this, never the tooltip's mere display of
-// a prediction, so "accepted" here really does mean the user chose it.
+// a prediction, so "accepted" here really does mean the user chose it --
+// which is why it carries kExplicitAcceptWeight rather than the single
+// point one passive learn-from-typing sighting earns: one deliberate
+// accept is enough to confirm the word and put it ahead of the
+// dictionary next time (see LatinLexicon::rememberWord()'s doc).
 - (void)_acceptLatinCompletionWord:(const std::string&)word
 {
     _mixedScriptTracker->acceptCompletion(word);
-    [self _rememberLatinWord:word];
+    [self _rememberLatinWord:word
+                      weight:McBopomofo::MixedScript::LatinLexicon::kExplicitAcceptWeight];
 }
 
 - (void)acceptLatinCompletionWithValue:(NSString *)value
@@ -1415,7 +1536,7 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
 // committed to the grid -- see the "isLatinLocked()" check at the call
 // site). Returns NO (handled nothing) when there is no completion to
 // offer -- either none exists at all, or the run is already a finished
-// word P3 fix #3 says not to grow (see _isAlreadyCompleteWord:) -- so the
+// word P3 fix #3 says not to grow (see _offeredCompletionFor:lexicon:) -- so the
 // caller falls through to _handleTabState:'s ordinary P1 behavior
 // unchanged. For a plain Tab that is exactly the same "no-op" that
 // behavior already was before this feature existed (the run gets
@@ -1424,9 +1545,9 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
 // there is a real single-candidate grid node for _handleTabState: to
 // cycle); for Shift+Tab the run is never committed first (Shift keeps
 // mixedScriptActive false throughout, matching pre-P3 behavior), so this
-// falls through with nothing in the grid at all, exactly as an
-// unmodified Shift+Tab on any other non-completable pending run already
-// did before this fix existed.
+// falls through with nothing in the grid at all -- which is exactly the
+// case _handleTabState:'s own pending-run check now consumes rather than
+// letting the key escape to the host application (B5).
 - (BOOL)_handleLatinCompletionTabWithShiftHeld:(BOOL)shiftHeld stateCallback:(void (^)(InputState *))stateCallback errorCallback:(void (^)(void))errorCallback
 {
     McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
@@ -1434,14 +1555,16 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
         return NO;
     }
     std::string run = _mixedScriptTracker->latinRun();
-    // P3 fix #3 (see _isAlreadyCompleteWord:'s doc): checked here, at the
-    // top, rather than relying solely on _hasLatinCompletionForPendingRun's
-    // matching gate at handleInput:'s boundary-key branch, because that
-    // branch only ever runs for a plain (non-shift) key --
-    // mixedScriptActive there requires !input.isShiftHold (Shift is the
-    // pre-existing "force English" gesture), so Shift+Tab reaches this
-    // method with the run still pending regardless of that other gate.
-    if ([self _isAlreadyCompleteWord:run lexicon:lexicon]) {
+    // P3 fix #3 (see _offeredCompletionFor:lexicon:'s doc) is applied here, at
+    // the top, rather than relying solely on
+    // _hasLatinCompletionForPendingRun's matching gate at handleInput:'s
+    // boundary-key branch, because that branch only ever runs for a plain
+    // (non-shift) key -- mixedScriptActive there requires
+    // !input.isShiftHold (Shift is the pre-existing "force English"
+    // gesture), so Shift+Tab reaches this method with the run still
+    // pending regardless of that other gate.
+    std::string offered = [self _offeredCompletionFor:run lexicon:lexicon];
+    if (offered.empty()) {
         return NO;
     }
 
@@ -1454,11 +1577,7 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
         return YES;
     }
 
-    std::vector<std::string> top1 = lexicon->complete(run, 1);
-    if (top1.empty()) {
-        return NO;
-    }
-    [self _acceptLatinCompletionWord:top1[0]];
+    [self _acceptLatinCompletionWord:offered];
     stateCallback([self buildInputtingState]);
     return YES;
 }
@@ -1510,7 +1629,7 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
     if (!isRuleALiteralNode && !isRuleBAlternateNode) {
         return NO;
     }
-    // P3 fix #3 (see _isAlreadyCompleteWord:'s doc): only a Rule-A literal
+    // P3 fix #3 (see _offeredCompletionFor:lexicon:'s doc): only a Rule-A literal
     // node is gated here -- this is the "committed via the no-completion
     // fallback path" half of the same run _hasLatinCompletionForPendingRun
     // already gated while it was still pending, so it must agree with
@@ -1520,17 +1639,22 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
     // a locked run) is not what this fix is about, and gating it here
     // would silently stop e.g. "coo" from completing further into "cook"
     // on a second Tab.
-    if (isRuleALiteralNode && [self _isAlreadyCompleteWord:value lexicon:lexicon]) {
-        return NO;
+    std::string offered;
+    if (isRuleALiteralNode) {
+        offered = [self _offeredCompletionFor:value lexicon:lexicon];
+    } else {
+        std::vector<std::string> top1 = lexicon->complete(value, 1);
+        if (!top1.empty()) {
+            offered = top1[0];
+        }
     }
-    std::vector<std::string> top1 = lexicon->complete(value, 1);
-    if (top1.empty()) {
+    if (offered.empty()) {
         return NO;
     }
 
     _grid->setCursor(accumulatedCursor);
     _grid->deleteReadingBeforeCursor();
-    [self _acceptLatinCompletionWord:top1[0]];
+    [self _acceptLatinCompletionWord:offered];
     // Not itself a natural-typing boundary (an explicit completion accept
     // just happened above, and latinRunAlreadyRemembered() already covers
     // it regardless) -- see _commitMixedScriptLatinRun:'s mayLearn doc.
@@ -1614,6 +1738,19 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
 - (BOOL)_handleTabState:(InputState *)state shiftIsHold:(BOOL)shiftIsHold stateCallback:(void (^)(InputState *))stateCallback errorCallback:(void (^)(void))errorCallback
 {
     if (!_grid->length()) {
+        // A pending Rule-A run is real, uncommitted text even though the
+        // grid is still empty (Shift+Tab never runs handleInput:'s
+        // boundary-commit branch, so the run stays in the tracker).
+        // Returning NO here let that Tab through to the host application,
+        // which moved focus or inserted a literal tab while the user
+        // still had unfinished English on screen
+        // (docs/REVIEW-P3-2026-09-11.md's B5). Consume it and beep
+        // instead: with a composing buffer on screen, Tab belongs to the
+        // input method whether or not it has anything to do with it.
+        if ([self _mixedScriptAvailable] && _mixedScriptTracker->hasPendingRun()) {
+            errorCallback();
+            return YES;
+        }
         return NO;
     }
 
@@ -3414,21 +3551,21 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
     // "it is worth showing" are the same check; the run-length floor is
     // still explicit here (matching the F3 spec) rather than relying on
     // that as an accident of complete()'s contract. P3 fix #3 adds one
-    // more condition: a run that is itself already a finished word (see
-    // _isAlreadyCompleteWord:'s doc) shows no prediction at all, matching
-    // Tab's own refusal to grow it -- showing "acerbic ⇥" under "acer"
-    // would advertise a completion Tab then declines to perform.
+    // more condition, which _offeredCompletionFor:lexicon: applies: a run
+    // that is itself already a finished word shows no prediction at all,
+    // matching Tab's own refusal to grow it -- showing "acerbic ⇥" under
+    // "acer" would advertise a completion Tab then declines to perform.
+    // Asking that one question (rather than the gate and then the lookup)
+    // is also what keeps this to a single complete() scan per keystroke.
     if (mixedScriptShowsLatinRun && [self _latinCompletionAvailable] && _mixedScriptTracker->latinRun().size() >= 2) {
         McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
         std::string run = _mixedScriptTracker->latinRun();
-        if (lexicon != nullptr && ![self _isAlreadyCompleteWord:run lexicon:lexicon]) {
-            std::vector<std::string> top1 = lexicon->complete(run, 1);
-            if (!top1.empty()) {
-                NSString *predictionTooltip = [@(top1[0].c_str()) stringByAppendingString:@" ⇥"];
-                tooltip = [tooltip length] > 0
-                    ? [NSString stringWithFormat:@"%@ / %@", tooltip, predictionTooltip]
-                    : predictionTooltip;
-            }
+        std::string offered = [self _offeredCompletionFor:run lexicon:lexicon];
+        if (!offered.empty()) {
+            NSString *predictionTooltip = [@(offered.c_str()) stringByAppendingString:@" ⇥"];
+            tooltip = [tooltip length] > 0
+                ? [NSString stringWithFormat:@"%@ / %@", tooltip, predictionTooltip]
+                : predictionTooltip;
         }
     }
 

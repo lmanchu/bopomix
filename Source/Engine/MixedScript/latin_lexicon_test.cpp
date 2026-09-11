@@ -23,11 +23,13 @@
 
 #include "latin_lexicon.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <random>
+#include <utility>
 
 #include "gtest/gtest.h"
 
@@ -400,13 +402,244 @@ TEST(LatinLexiconTest, CompleteOrdersUserWordsByCountDescending) {
   lexicon.rememberWord("apple");
   lexicon.rememberWord("apply");
   lexicon.rememberWord("apply");
-  lexicon.rememberWord("appstore");
+  // Confirmed in one call, the way an explicit Tab/candidate accept does.
+  lexicon.rememberWord("appstore", LatinLexicon::kExplicitAcceptWeight);
 
   std::vector<std::string> completions = lexicon.complete("app", 10);
   ASSERT_EQ(completions.size(), 3u);
-  EXPECT_EQ(completions[0], "apple");     // count 3
-  EXPECT_EQ(completions[1], "apply");     // count 2
-  EXPECT_EQ(completions[2], "appstore");  // count 1
+  EXPECT_EQ(completions[0], "apple");     // score 3
+  EXPECT_EQ(completions[1], "apply");     // score 2
+  EXPECT_EQ(completions[2], "appstore");  // score 2, loses the tie on spelling
+}
+
+// docs/REVIEW-P3-2026-09-11.md's B2: a word with only a single passive
+// learn-from-typing sighting behind it must NOT leapfrog the dictionary.
+// Before this, every user word was tier 0 no matter how it got there, so
+// one mistyped word owned its prefix permanently.
+TEST(LatinLexiconTest, CompleteKeepsAnUnconfirmedUserWordBehindTheDictionary) {
+  TempFile file("thing\t0\nthink\t1\n");
+  LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(file.path()));
+  lexicon.rememberWord("think");  // One sighting only: score 1.
+
+  EXPECT_EQ(lexicon.complete("thin", 1), std::vector<std::string> { "thing" });
+
+  // A second sighting confirms it and it takes over.
+  lexicon.rememberWord("think");
+  EXPECT_EQ(lexicon.complete("thin", 1), std::vector<std::string> { "think" });
+}
+
+// A user word the dictionary has never heard of and that is still
+// unconfirmed (only reachable from a hand-edited or pre-P3 latin-user.txt)
+// sorts *behind* every ranked word rather than ahead of them, which is
+// what an unranked candidate used to do.
+TEST(LatinLexiconTest, CompleteRanksAnUnconfirmedUnknownUserWordLast) {
+  TempFile file("thing\t0\n");
+  LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(file.path()));
+  TempFile userFile("thqrst\t1\n");
+  ASSERT_TRUE(lexicon.loadUserWordList(userFile.path()));
+
+  std::vector<std::string> completions = lexicon.complete("th", 10);
+  ASSERT_EQ(completions.size(), 2u);
+  EXPECT_EQ(completions[0], "thing");
+  EXPECT_EQ(completions[1], "thqrst");
+}
+
+// docs/REVIEW-P3-2026-09-11.md's B1. The bug only showed up once the
+// candidate set was larger than n AND the good candidates were scanned
+// *after* the heap filled up -- exactly the shape every existing ordering
+// test lacked (each had 3 candidates and asked for 10, so the eviction
+// branch never ran at all). Scan order is alphabetical, so putting the
+// best-ranked words last alphabetically is what makes this adversarial:
+// with the old comparator the answer was "the alphabetically first n,
+// with one slot churning", i.e. thaa/thab here.
+TEST(LatinLexiconTest, CompleteKeepsTheBestCandidatesWhenMoreMatchThanFit) {
+  TempFile file(
+      "thaa\t9\nthab\t9\nthac\t9\nthad\t9\nthae\t9\n"
+      "thza\t1\nthzb\t2\nthzc\t3\n");
+  LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(file.path()));
+
+  std::vector<std::string> completions = lexicon.complete("th", 3);
+  ASSERT_EQ(completions.size(), 3u);
+  EXPECT_EQ(completions[0], "thza");  // rank 1
+  EXPECT_EQ(completions[1], "thzb");  // rank 2
+  EXPECT_EQ(completions[2], "thzc");  // rank 3
+}
+
+// The same property, stated generally and checked against the obvious
+// slow implementation: for every prefix and every n, complete(prefix, n)
+// must equal the first n entries of a full sort of all matches. A
+// hand-written example can be satisfied by a comparator that is wrong in
+// some other direction; this cannot.
+TEST(LatinLexiconTest, CompleteMatchesAFullSortForEveryPrefixAndN) {
+  std::mt19937 rng(1234);
+  std::uniform_int_distribution<int> rankDist(0, 4);
+  std::vector<std::pair<std::string, int>> words;
+  std::string content;
+  for (char a = 'a'; a <= 'e'; ++a) {
+    for (char b = 'a'; b <= 'e'; ++b) {
+      for (char c = 'a'; c <= 'e'; ++c) {
+        std::string word { a, b, c };
+        int rank = rankDist(rng);
+        words.emplace_back(word, rank);
+        content += word + "\t" + std::to_string(rank) + "\n";
+      }
+    }
+  }
+  TempFile file(content);
+  LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(file.path()));
+  // A couple of confirmed user words so tier 0 participates too.
+  lexicon.rememberWord("abc", LatinLexicon::kExplicitAcceptWeight);
+  lexicon.rememberWord("bcd", LatinLexicon::kExplicitAcceptWeight);
+
+  for (char a = 'a'; a <= 'e'; ++a) {
+    for (char b = 'a'; b <= 'e'; ++b) {
+      std::string prefix { a, b };
+      // The reference answer: every strictly-longer match, fully sorted
+      // by the documented ordering.
+      std::vector<std::pair<std::string, int>> matches;
+      for (const auto& entry : words) {
+        if (entry.first.size() > prefix.size() &&
+            entry.first.compare(0, prefix.size(), prefix) == 0) {
+          matches.push_back(entry);
+        }
+      }
+      std::sort(matches.begin(), matches.end(),
+                [&lexicon](const auto& x, const auto& y) {
+                  bool xUser = lexicon.isUserWord(x.first);
+                  bool yUser = lexicon.isUserWord(y.first);
+                  if (xUser != yUser) {
+                    return xUser;
+                  }
+                  if (!xUser && x.second != y.second) {
+                    return x.second < y.second;
+                  }
+                  return x.first < y.first;
+                });
+
+      for (size_t n = 1; n <= matches.size(); ++n) {
+        std::vector<std::string> expected;
+        for (size_t i = 0; i < n; ++i) {
+          expected.push_back(matches[i].first);
+        }
+        EXPECT_EQ(lexicon.complete(prefix, n), expected)
+            << "prefix=" << prefix << " n=" << n;
+      }
+    }
+  }
+}
+
+// docs/REVIEW-P3-2026-09-11.md's B3. sourceTier() is the cross-file
+// comparison rank() cannot express: the hand-ranked seed file ties with
+// the dictionary's most frequent tier instead of beating it, so a
+// finished ordinary word is never "worse" than a seed term that merely
+// extends it.
+TEST(LatinLexiconTest, SourceTierTiesTheSeedFileWithTheDictionarysBestTier) {
+  TempFile techSeed("codesign\t0\nacer\t4\n");
+  TempFile dictionary("code\t0\ncodex\t3\nacerbic\t1\n");
+  LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(techSeed.path()));
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(dictionary.path()));
+
+  // rank() still puts the whole seed file first -- that is what makes it
+  // win completions.
+  EXPECT_LT(lexicon.rank("codesign"), lexicon.rank("code"));
+  // sourceTier() does not: seed and dictionary-tier-0 are the same level.
+  EXPECT_EQ(lexicon.sourceTier("codesign"), LatinLexicon::kBestSourceTier);
+  EXPECT_EQ(lexicon.sourceTier("code"), LatinLexicon::kBestSourceTier);
+  // Deeper dictionary tiers are worse, by exactly the tier number.
+  EXPECT_EQ(lexicon.sourceTier("codex"), LatinLexicon::kBestSourceTier + 3);
+  EXPECT_EQ(lexicon.sourceTier("acerbic"), LatinLexicon::kBestSourceTier + 1);
+  // A seed word's own in-file rank does not make it a worse source.
+  EXPECT_EQ(lexicon.sourceTier("acer"), LatinLexicon::kBestSourceTier);
+  // Not a word at all.
+  EXPECT_EQ(lexicon.sourceTier("aweso"), LatinLexicon::kUnknownSourceTier);
+}
+
+TEST(LatinLexiconTest, SourceTierPromotesOnlyConfirmedUserWords) {
+  // Two files, matching production's seed-then-dictionary load order --
+  // sourceTier() reads the *second* file's in-file rank as the tier (see
+  // its doc).
+  TempFile techSeed("codesign\t0\n");
+  TempFile dictionary("thing\t2\n");
+  LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(techSeed.path()));
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(dictionary.path()));
+
+  lexicon.rememberWord("thing");
+  EXPECT_EQ(lexicon.sourceTier("thing"), LatinLexicon::kBestSourceTier + 2)
+      << "one sighting must not change where the word came from";
+  lexicon.rememberWord("thing");
+  EXPECT_EQ(lexicon.sourceTier("thing"), LatinLexicon::kConfirmedUserWordTier);
+
+  // An unconfirmed user word the dictionary does not know has no
+  // frequency evidence at all.
+  TempFile userFile("thqrst\t1\n");
+  ASSERT_TRUE(lexicon.loadUserWordList(userFile.path()));
+  EXPECT_EQ(lexicon.sourceTier("thqrst"), LatinLexicon::kUnrankedSourceTier);
+}
+
+// docs/REVIEW-P3-2026-09-11.md's B2: the in-memory staging area that
+// keeps a word the dictionary does not know out of latin-user.txt until
+// it has been typed twice.
+TEST(LatinLexiconTest, PendingTypedWordsAreCountedButNeverStored) {
+  TempFile userFile("");
+  LatinLexicon lexicon;
+  lexicon.setUserWordListPath(userFile.path());
+
+  EXPECT_EQ(lexicon.pendingTypedWordSightings("thqrst"), 0);
+  EXPECT_EQ(lexicon.notePendingTypedWord("thqrst"), 1);
+  EXPECT_EQ(lexicon.pendingTypedWordSightings("thqrst"), 1);
+  EXPECT_EQ(lexicon.notePendingTypedWord("THQRST"), 2) << "case-insensitive";
+
+  // Staging alone changes nothing anybody can observe.
+  EXPECT_FALSE(lexicon.isWord("thqrst"));
+  EXPECT_FALSE(lexicon.isUserWord("thqrst"));
+  EXPECT_TRUE(lexicon.complete("thq", 10).empty());
+  std::ifstream persisted(userFile.path());
+  std::string line;
+  EXPECT_FALSE(std::getline(persisted, line))
+      << "nothing may reach disk before the word is actually learned";
+
+  // Promoting the word spends the staged sightings.
+  lexicon.rememberWord("thqrst", LatinLexicon::kUserWordConfirmedScore);
+  EXPECT_EQ(lexicon.pendingTypedWordSightings("thqrst"), 0);
+  EXPECT_TRUE(lexicon.isUserWord("thqrst"));
+}
+
+TEST(LatinLexiconTest, ResetClearsPendingTypedWords) {
+  LatinLexicon lexicon;
+  lexicon.notePendingTypedWord("thqrst");
+  lexicon.reset();
+  EXPECT_EQ(lexicon.pendingTypedWordSightings("thqrst"), 0);
+  EXPECT_EQ(lexicon.notePendingTypedWord("thqrst"), 1);
+}
+
+TEST(LatinLexiconTest, RememberWordAddsItsWeight) {
+  TempFile userFile("");
+  LatinLexicon lexicon;
+  lexicon.setUserWordListPath(userFile.path());
+
+  lexicon.rememberWord("ellipse", LatinLexicon::kExplicitAcceptWeight);
+  EXPECT_EQ(lexicon.sourceTier("ellipse"), LatinLexicon::kConfirmedUserWordTier)
+      << "one explicit accept confirms the word on its own";
+
+  // The stored score really is the sum, and it survives a reload.
+  lexicon.rememberWord("ellipse");
+  LatinLexicon reloaded;
+  ASSERT_TRUE(reloaded.loadUserWordList(userFile.path()));
+  std::vector<std::string> completions = reloaded.complete("ellips", 10);
+  ASSERT_EQ(completions.size(), 1u);
+  EXPECT_EQ(completions[0], "ellipse");
+  // score 3 == 2 (accept) + 1 (one typed sighting)
+  TempFile expected("ellipse\t3\n");
+  std::ifstream persisted(userFile.path());
+  std::string line;
+  ASSERT_TRUE(std::getline(persisted, line));
+  EXPECT_EQ(line, "ellipse\t3");
 }
 
 TEST(LatinLexiconTest, CompleteTiesBreakAlphabetically) {

@@ -34,8 +34,6 @@ func charCode(_ string: String) -> UInt16 {
 class KeyHandlerBopomofoTests: XCTestCase {
 
     var handler = KeyHandler()
-    var savedKeyboardLayout: KeyboardLayout = .standard
-    var chineseConversionEnabled: Bool = false
     // P3 fix #5 (XCTest/machine-preference isolation, see
     // ~/.claude/plans/zhuyin-ime-personal.md's P3 fix #5): these upstream
     // tests know nothing about mixedScript and never save/restore its
@@ -45,18 +43,16 @@ class KeyHandlerBopomofoTests: XCTestCase {
     // rewrite readings it never used to (e.g. testInvalidBpmf's "ni4"
     // becomes a Rule-A literal run instead of the upstream
     // EmptyIgnoringPreviousState). Forced off here regardless of the
-    // machine's real value, which is saved and restored in tearDown --
+    // machine's real value, which PreferenceSandbox puts back --
     // this never touches the plist's own final on-disk state.
-    var savedMixedScriptEnabled = false
-    var savedLatinCompletionEnabled = true
-    var savedLatinLearnTypedWords = true
-
     override func setUpWithError() throws {
-        savedKeyboardLayout = Preferences.keyboardLayout
-        chineseConversionEnabled = Preferences.chineseConversionEnabled
-        savedMixedScriptEnabled = Preferences.mixedScriptEnabled
-        savedLatinCompletionEnabled = Preferences.latinCompletionEnabled
-        savedLatinLearnTypedWords = Preferences.latinLearnTypedWords
+        // Must come before the first Preferences write, and is the only
+        // restore mechanism in this class -- see
+        // LatinCompletionKeyHandlerTests.setUpWithError and
+        // docs/REVIEW-P3-2026-09-11.md's N4 for why writing saved values
+        // back in tearDownWithError was not enough.
+        PreferenceSandbox.install(on: self)
+
         Preferences.chineseConversionEnabled = false
         Preferences.keyboardLayout = .standard
         Preferences.mixedScriptEnabled = false
@@ -68,11 +64,8 @@ class KeyHandlerBopomofoTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        Preferences.chineseConversionEnabled = chineseConversionEnabled
-        Preferences.keyboardLayout = savedKeyboardLayout
-        Preferences.mixedScriptEnabled = savedMixedScriptEnabled
-        Preferences.latinCompletionEnabled = savedLatinCompletionEnabled
-        Preferences.latinLearnTypedWords = savedLatinLearnTypedWords
+        // Preferences are restored by PreferenceSandbox, not here -- see
+        // setUpWithError.
     }
 
     func testSyncWithPreferences() {

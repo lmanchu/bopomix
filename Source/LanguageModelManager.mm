@@ -570,7 +570,17 @@ static void LTLoadMixedScriptLexicon()
     // publishing first -- bounded by the same ~150ms a load already
     // takes, never blocking forever since the background queue makes
     // progress independently of this (main-thread, testing-only) spin.
+    // The deadline is belt and braces: an unbounded spin on the main
+    // thread is a test-suite hang with no diagnosis attached, whereas
+    // giving up loudly after an interval two orders of magnitude past the
+    // real cost says what happened (docs/REVIEW-P3-2026-09-11.md's N14).
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:30];
     while (gLatinLexiconLoadStarted && !gLatinLexiconReady.load(std::memory_order_acquire)) {
+        if ([[NSDate date] compare:deadline] == NSOrderedDescending) {
+            NSLog(@"warning: latin lexicon load did not publish within 30s; "
+                  @"resetting anyway");
+            break;
+        }
         [NSThread sleepForTimeInterval:0.001];
     }
     gLatinLexicon.reset();
