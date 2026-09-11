@@ -76,6 +76,19 @@ extern InputMode InputModePlainBopomofo;
                                    prefixValue:(NSString *)pfxValue
                        associatedPhraseReading:(NSString *)phraseReading
                          associatedPhraseValue:(NSString *)phraseValue;
+
+// P3 English prediction + Tab completion (see
+// ~/.claude/plans/zhuyin-ime-personal.md's F3 scope): accepts `value` as
+// the pending Latin run's completion, the same way Tab does, but from a
+// pick in the completion candidate window (see
+// InputMethodController+CandidateControllerDelegate.swift's
+// didSelectCandidateAtIndex:, which routes here instead of fixNode(...)
+// for a candidate whose reading marks it as a completion -- that node is
+// not backed by the grid, so fixNode's overrideCandidate() would not find
+// anything to override).
+- (void)acceptLatinCompletionWithValue:(NSString *)value
+    NS_SWIFT_NAME(acceptLatinCompletion(value:));
+
 - (void)clear;
 
 - (void)handleForceCommitWithStateCallback:(void (^)(InputState *))stateCallback

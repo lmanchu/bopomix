@@ -130,11 +130,17 @@ static void LTLoadMixedScriptLexicon()
     NSString *userPath = [LanguageModelManager latinUserWordListPath];
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        if (wordsPath != nil) {
-            gLatinLexicon.loadBuiltinWordList(wordsPath.UTF8String);
-        }
+        // P3 predictive typing (see zhuyin-ime-personal.md's F3 scope):
+        // tech-seed is loaded *before* the dictionary so its hand-ranked
+        // terms always outrank every dictionary word regardless of the
+        // dictionary's own SCOWL-tier rank -- see
+        // LatinLexicon::loadBuiltinWordList()'s rank-offset comment for
+        // why load order alone is enough to guarantee that.
         if (techSeedPath != nil) {
             gLatinLexicon.loadBuiltinWordList(techSeedPath.UTF8String);
+        }
+        if (wordsPath != nil) {
+            gLatinLexicon.loadBuiltinWordList(wordsPath.UTF8String);
         }
         gLatinLexicon.setUserWordListPath(userPath.UTF8String);
         gLatinLexicon.loadUserWordList(userPath.UTF8String);

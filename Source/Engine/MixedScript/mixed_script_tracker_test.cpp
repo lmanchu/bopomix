@@ -284,6 +284,42 @@ TEST(MixedScriptTrackerTest, PopLastLatinCharToEmptyClearsTheLock) {
   EXPECT_EQ(tracker.feedKey(Standard(), 'l'), Verdict::kChinese);
 }
 
+// P3: accepting a completion (Tab or the completion candidate window)
+// replaces the run's text and keeps the lock, so more typing keeps
+// extending the completed word rather than reopening rule A/B analysis.
+TEST(MixedScriptTrackerTest, AcceptCompletionReplacesRunAndStaysLocked) {
+  LatinLexicon lexicon;
+  MixedScriptTracker tracker(&lexicon);
+  tracker.feedKey(Standard(), 't');
+  tracker.feedKey(Standard(), 'h');
+  ASSERT_TRUE(tracker.isLatinLocked());
+  ASSERT_EQ(tracker.latinRun(), "th");
+
+  tracker.acceptCompletion("they");
+  EXPECT_TRUE(tracker.isLatinLocked());
+  EXPECT_EQ(tracker.latinRun(), "they");
+
+  // Typing on keeps extending the completed word, not "th".
+  EXPECT_EQ(tracker.feedKey(Standard(), 'r'), Verdict::kLatin);
+  EXPECT_EQ(tracker.latinRun(), "theyr");
+}
+
+// Backspacing after accepting a completion shortens the *completed* word,
+// exactly like backspacing any other locked run (see
+// PopLastLatinCharShortensALockedRun) -- accepting one must not leave any
+// different bookkeeping behind.
+TEST(MixedScriptTrackerTest, PopLastLatinCharAfterAcceptingCompletion) {
+  LatinLexicon lexicon;
+  MixedScriptTracker tracker(&lexicon);
+  tracker.feedKey(Standard(), 't');
+  tracker.feedKey(Standard(), 'h');
+  tracker.acceptCompletion("they");
+
+  tracker.popLastLatinChar();
+  EXPECT_TRUE(tracker.isLatinLocked());
+  EXPECT_EQ(tracker.latinRun(), "the");
+}
+
 TEST(IsAllAsciiLettersTest, AcceptsLettersOnly) {
   EXPECT_TRUE(IsAllAsciiLetters("acer"));
   EXPECT_TRUE(IsAllAsciiLetters("Acer"));

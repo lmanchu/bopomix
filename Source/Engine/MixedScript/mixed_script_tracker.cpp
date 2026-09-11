@@ -80,6 +80,11 @@ void MixedScriptTracker::popLastLatinChar() {
   reset();
 }
 
+void MixedScriptTracker::acceptCompletion(const std::string& word) {
+  latinRun_ = word;
+  latinLocked_ = true;
+}
+
 void MixedScriptTracker::reset() {
   shape_.reset();
   latinRun_.clear();

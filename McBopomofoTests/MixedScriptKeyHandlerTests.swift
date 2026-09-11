@@ -904,13 +904,25 @@ class MixedScriptKeyHandlerTests: XCTestCase {
             .deletingLastPathComponent()
         let baseline = repoRoot.appendingPathComponent("tools/eval/BASELINE.md")
         guard FileManager.default.fileExists(atPath: baseline.path) else { return }
-        var text = try String(contentsOf: baseline, encoding: .utf8)
+        let text = try String(contentsOf: baseline, encoding: .utf8)
         let marker = "\n## P1 round 2 -- app path (real KeyHandler)"
-        if let range = text.range(of: marker) {
-            text = String(text[text.startIndex..<range.lowerBound])
+        // Replaces only *this* section (up to, but not including, the
+        // next top-level "## " heading -- e.g. LatinCompletionKeyHandlerTests'
+        // "## P3" section, which may already follow this one), not
+        // everything after the marker: the two eval tests' BASELINE.md
+        // writers run in the same suite and must not clobber each other
+        // regardless of which one XCTest happens to run second.
+        let newText: String
+        if let markerRange = text.range(of: marker) {
+            let searchStart = text.index(after: markerRange.lowerBound)
+            let sectionEnd =
+                text.range(of: "\n## ", range: searchStart..<text.endIndex)?.lowerBound
+                ?? text.endIndex
+            newText = text.replacingCharacters(in: markerRange.lowerBound..<sectionEnd, with: report)
+        } else {
+            newText = text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n" + report
         }
-        text = text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n" + report
-        try text.write(to: baseline, atomically: true, encoding: .utf8)
+        try newText.write(to: baseline, atomically: true, encoding: .utf8)
     }
 
     func testPlainBopomofoIsUntouched() {
@@ -943,7 +955,27 @@ class MixedScriptKeyHandlerTests: XCTestCase {
 
     /// R5: a rule-A run has a single candidate. Tab-cycling over it is not a
     /// choice between Chinese and English and must not touch latin-user.txt.
+    ///
+    /// P3 (see ~/.claude/plans/zhuyin-ime-personal.md's F3 scope) gives
+    /// Tab a new, deliberate job on exactly this state -- completing the
+    /// pending run ("acer" -> a longer dictionary word) -- which does
+    /// write the accepted word to latin-user.txt by design (that is the
+    /// whole point: an accepted completion should rank first next time).
+    /// R5's original invariant -- merely *cycling* Tab over a run with
+    /// nothing to complete to must never look like a choice -- still
+    /// holds and is still worth pinning, so this test now scopes itself
+    /// to Preferences.latinCompletionEnabled = false (P3's own "no
+    /// completion" fallback is exactly P1's unchanged behavior; see
+    /// LatinCompletionKeyHandlerTests.swift's
+    /// testTabWithCompletionDisabledMatchesMaster for the ON-by-default
+    /// counterpart of this same scenario).
     func testR5_TabOnARuleARunDoesNotWriteTheUserLexicon() throws {
+        let savedLatinCompletionEnabled = Preferences.latinCompletionEnabled
+        Preferences.latinCompletionEnabled = false
+        defer {
+            Preferences.latinCompletionEnabled = savedLatinCompletionEnabled
+        }
+
         let path = temporaryUserDataFolder!.appendingPathComponent("latin-user.txt").path
         let before = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
         type("acer")

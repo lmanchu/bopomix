@@ -148,6 +148,19 @@ class MixedScriptTracker {
   // way -- this only touches mixedScript's own bookkeeping.
   void popLastLatinChar();
 
+  // P3 predictive typing (see zhuyin-ime-personal.md's F3 scope and
+  // LatinLexicon::complete()): replaces the pending run's text with a
+  // longer completion the user just accepted (Tab, or a pick from the
+  // completion candidate window -- see KeyHandler's mixed-script hookup).
+  // Only meaningful while isLatinLocked() is already true -- accepting a
+  // completion is only offered for a Rule-A-locked run in the first place
+  // (see buildInputtingState's tooltip and the Tab hookup) -- but locks
+  // the run regardless, so calling it is never a no-op: latinRun()
+  // reflects `word` and isLatinLocked() is true either way afterward, and
+  // further letters typed continue to extend it as English exactly like
+  // any other locked run.
+  void acceptCompletion(const std::string& word);
+
   void reset();
 
  private:

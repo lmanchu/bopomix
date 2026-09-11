@@ -186,3 +186,34 @@ text typed from keys with English words interleaved, where an
 English run legitimately breaks the phrase context around it,
 and its own no-mixed-typing counterpart is 56.2%. The
 pure-Chinese control above is the like-for-like number.
+
+## P3 -- English prediction + Tab completion, 2026-09-11
+
+Produced by `LatinCompletionKeyHandlerTests.testEval200LatinCompletion`
+(`xcodebuild -scheme McBopomofo test`). For every eval200 English
+token of length >= 3 (330 of them), simulates typing it letter
+by letter into a real `KeyHandler` and records the first prefix
+length at which the completion tooltip's top-1 prediction equals
+the token -- i.e. how many letters the user would actually have
+typed before Tab completes it. See this test's doc comment for
+the one caveat on cross-test lexicon state this number carries.
+
+| metric | value |
+|---|---|
+| completable within 2 letters | 52/330 = 15.8% |
+| completable within 3 letters | 87/330 = 26.4% |
+| completable within 4 letters | 100/330 = 30.3% |
+| never completable (no dictionary match at any prefix) | 197/330 = 59.7% |
+| average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | 0.67 |
+
+### Pure-Chinese control: ON vs OFF, character by character
+
+Same idea as testEval200ThroughKeyHandler's pure-Chinese control,
+but toggling `latinCompletionEnabled` (mixedScriptEnabled stays
+on in both runs) instead of `mixedScriptEnabled` itself, and only
+typing each row's Chinese-segment keys.
+
+| metric | value |
+|---|---|
+| rows with any character difference | 0/200 |
+| matching characters | 4584/4584 = 100.0% |

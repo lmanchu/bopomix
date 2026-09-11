@@ -50,6 +50,16 @@
 InputMode InputModeBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Bopomofo";
 InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.PlainBopomofo";
 
+// P3 English prediction + Tab completion (see
+// ~/.claude/plans/zhuyin-ime-personal.md's F3 scope). The synthetic
+// "reading" every candidate in the completion candidate window carries --
+// never a real Bopomofo reading or grid position, so it doubles as this
+// window's marker: _isLatinCompletionCandidateState: and the Swift
+// candidate-selection delegate both check for it to route completion
+// picks around the grid-backed fixNode(...) path (see
+// KeyHandler.h's acceptLatinCompletionWithValue: doc).
+static NSString *const kLatinCompletionReading = @"_latin_completion_";
+
 @implementation KeyHandler {
     std::shared_ptr<Formosa::Gramambular2::LanguageModel> _emptySharedPtr;
 
@@ -580,7 +590,8 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
         // kChinese or kAmbiguous: the tracker is only observing so far --
         // fall through to the normal Bopomofo handling below, which still
         // owns composition either way.
-    } else if (mixedScriptActive && _mixedScriptTracker->isLatinLocked() && charCode != 8 && charCode != 27) {
+    } else if (mixedScriptActive && _mixedScriptTracker->isLatinLocked() && charCode != 8 && charCode != 27
+        && !(input.isTab && [self _latinCompletionAvailable] && [self _hasLatinCompletionForPendingRun])) {
         // Any key that did not continue the run above (a space, tone
         // digit, punctuation, Enter, an arrow key, a reserved/control
         // combo...) ends a Rule-A-locked run: commit it into the grid as
@@ -589,7 +600,20 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
         // that already reflects the run -- exactly as if the user had
         // just finished a normal Chinese syllable. Backspace and Esc are
         // edits to the *pending* run, not boundaries that end it -- see
-        // _handleBackspaceWithState and _handleEscWithState. (Comparing
+        // _handleBackspaceWithState and _handleEscWithState.
+        //
+        // P3 English prediction + Tab completion adds a third exception,
+        // Tab, but only while there is actually a completion to accept
+        // for the pending run: accepting one is also an edit to the
+        // pending run (see handleInput:'s "MARK: Tab" section below,
+        // which needs isLatinLocked() to still be true when it runs) --
+        // not a boundary, so it must not be force-committed here first.
+        // With no completion, Tab keeps meaning exactly what it always
+        // did (fall into this branch, then _handleTabState: cycles the
+        // now-committed grid node), per the F3 spec's "no completion ->
+        // unchanged P1 behavior."
+        //
+        // (Comparing
         // charCode, not a char-truncated copy of it, is what makes the
         // arrow keys land here on purpose rather than by the coincidence
         // that (char)0xF702 is neither 8 nor 27.)
@@ -883,6 +907,28 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
 
     // MARK: Tab
     if (input.isTab) {
+        // P3 English prediction + Tab completion: only while a Rule-A run
+        // is pending (not yet committed to the grid -- isLatinLocked()).
+        // A Rule-B run showing Chinese by default keeps P1's Tab-flips-
+        // to-English behavior untouched below, and once *any* run is
+        // committed into the grid (Rule A boundary, or Rule B's own
+        // space/Enter promotion) it is an ordinary grid node that
+        // _handleTabState: already cycles correctly.
+        if ([self _latinCompletionAvailable] && _mixedScriptTracker->isLatinLocked()) {
+            BOOL handled = [self _handleLatinCompletionTabWithShiftHeld:input.isShiftHold stateCallback:stateCallback errorCallback:errorCallback];
+            if (handled) {
+                return YES;
+            }
+            // No completion for the current run: fall through to P1's
+            // existing Tab semantics unchanged (see that method's doc).
+        } else if ([self _latinCompletionAvailable] && !input.isShiftHold
+            && [self _handleLatinCompletionOnCommittedNodeWithStateCallback:stateCallback]) {
+            // The other Tab precedence case: not a pending run, but the
+            // node under the cursor already shows English (a Rule-B word
+            // a *previous* Tab press flipped, or a Rule-A literal node
+            // the cursor sits on) and a longer completion exists for it.
+            return YES;
+        }
         return [self _handleTabState:state shiftIsHold:input.isShiftHold stateCallback:stateCallback errorCallback:errorCallback];
     }
 
@@ -1134,6 +1180,31 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
     return Preferences.mixedScriptEnabled && _inputMode == InputModeBopomofo && Preferences.keyboardLayout == KeyboardLayoutStandard;
 }
 
+// P3 English prediction + Tab completion (see
+// ~/.claude/plans/zhuyin-ime-personal.md's F3 scope): a strict narrowing
+// of _mixedScriptAvailable, so turning mixedScript off (or an unsupported
+// keyboard layout) disables completion the same way it disables
+// everything else P1 added, with no separate gate to keep in sync.
+- (BOOL)_latinCompletionAvailable
+{
+    return [self _mixedScriptAvailable] && Preferences.latinCompletionEnabled;
+}
+
+// Whether the pending Latin run has at least one longer completion right
+// now. Used only to decide Tab's precedence at the top of handleInput:
+// (see the mixedScriptActive boundary-commit branch's doc): Tab must NOT
+// force-commit a pending run as a boundary key when it is instead about
+// to accept a completion for it, but must still do exactly that (P1's
+// unchanged behavior) when there is nothing to accept.
+- (BOOL)_hasLatinCompletionForPendingRun
+{
+    McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
+    if (lexicon == nullptr) {
+        return NO;
+    }
+    return !lexicon->complete(_mixedScriptTracker->latinRun(), 1).empty();
+}
+
 // True if (reading, value) is one of the Latin alternates this
 // composition registered -- see _mixedScriptAlternates' declaration.
 - (BOOL)_isMixedScriptAlternateWithReading:(NSString *)reading value:(NSString *)value
@@ -1152,6 +1223,248 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
         }
     }
     return NO;
+}
+
+// MARK: P3 English prediction + Tab completion (see
+// ~/.claude/plans/zhuyin-ime-personal.md's F3 scope)
+
+// Builds up to Preferences.candidateKeys.length completions for the
+// pending Latin run as a candidate window, or nil if there are none to
+// show (an empty candidate list is not a state KeyHandler otherwise
+// produces, so "no completions" is "don't open the window" rather than
+// "open an empty one"). Used by both Shift+Tab's initial open and
+// _handleLatinCompletionCandidateState:'s re-query as more letters are
+// typed with the window already open.
+- (nullable InputStateChoosingCandidate *)_buildLatinCompletionCandidateState
+{
+    McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
+    if (lexicon == nullptr) {
+        return nil;
+    }
+    std::string run = _mixedScriptTracker->latinRun();
+    NSUInteger maxCount = Preferences.candidateKeys.length;
+    if (maxCount == 0) {
+        return nil;
+    }
+    std::vector<std::string> completions = lexicon->complete(run, maxCount);
+    if (completions.empty()) {
+        return nil;
+    }
+
+    InputStateInputting *inputting = (InputStateInputting *)[self buildInputtingState];
+    NSMutableArray<InputStateCandidate *> *candidatesArray = [[NSMutableArray alloc] init];
+    for (const auto& word : completions) {
+        NSString *w = @(word.c_str());
+        InputStateCandidate *candidate = [[InputStateCandidate alloc] initWithReading:kLatinCompletionReading value:w displayText:w rawValue:w];
+        [candidatesArray addObject:candidate];
+    }
+    InputStateChoosingCandidate *choosing = [[InputStateChoosingCandidate alloc] initWithComposingBuffer:inputting.composingBuffer cursorIndex:inputting.cursorIndex candidates:candidatesArray useVerticalMode:NO];
+    return choosing;
+}
+
+// True for a candidate window this method (not the grid-backed candidate
+// flow) produced -- see kLatinCompletionReading's doc.
+- (BOOL)_isLatinCompletionCandidateState:(InputState *)state
+{
+    if (![state isKindOfClass:[InputStateChoosingCandidate class]]) {
+        return NO;
+    }
+    NSArray<InputStateCandidate *> *candidates = ((InputStateChoosingCandidate *)state).candidates;
+    return candidates.count > 0 && [candidates.firstObject.reading isEqualToString:kLatinCompletionReading];
+}
+
+// The shared core of accepting a completion, whichever UI it came from
+// (Tab's top-1 auto-accept, or a pick from the completion candidate
+// window -- see acceptLatinCompletionWithValue:). Mirrors
+// fixNodeWithReading:'s mixedScript-learning block: only Tab/the
+// candidate window ever calls this, never the tooltip's mere display of
+// a prediction, so "accepted" here really does mean the user chose it.
+- (void)_acceptLatinCompletionWord:(const std::string&)word
+{
+    _mixedScriptTracker->acceptCompletion(word);
+    McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
+    if (lexicon != nullptr) {
+        NSString *userWordListPath = [LanguageModelManager latinUserWordListPath];
+        lexicon->setUserWordListPath(userWordListPath.UTF8String);
+        [LanguageModelManager ensureLatinUserWordListFolder];
+        if (!lexicon->rememberWord(word)) {
+            // Never block typing on this; see fixNodeWithReading:'s
+            // identical tradeoff.
+            NSLog(@"warning: could not persist latin completion word to %@", userWordListPath);
+        }
+    }
+}
+
+- (void)acceptLatinCompletionWithValue:(NSString *)value
+{
+    if (value.length == 0) {
+        return;
+    }
+    [self _acceptLatinCompletionWord:std::string(value.UTF8String)];
+}
+
+// Tab/Shift+Tab's mixed-script hookup, called from handleInput: before
+// _handleTabState: whenever a Rule-A-locked run is pending (not yet
+// committed to the grid -- see the "isLatinLocked()" check at the call
+// site). Returns NO (handled nothing) when there is no completion to
+// offer, so the caller falls through to _handleTabState:'s ordinary P1
+// behavior unchanged -- exactly the same "no-op" that behavior already
+// was before this feature existed, since a pending run has nothing in
+// the grid for _handleTabState: to act on anyway.
+- (BOOL)_handleLatinCompletionTabWithShiftHeld:(BOOL)shiftHeld stateCallback:(void (^)(InputState *))stateCallback errorCallback:(void (^)(void))errorCallback
+{
+    if (shiftHeld) {
+        InputStateChoosingCandidate *choosing = [self _buildLatinCompletionCandidateState];
+        if (choosing == nil) {
+            return NO;
+        }
+        stateCallback(choosing);
+        return YES;
+    }
+
+    McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
+    if (lexicon == nullptr) {
+        return NO;
+    }
+    std::vector<std::string> top1 = lexicon->complete(_mixedScriptTracker->latinRun(), 1);
+    if (top1.empty()) {
+        return NO;
+    }
+    [self _acceptLatinCompletionWord:top1[0]];
+    stateCallback([self buildInputtingState]);
+    return YES;
+}
+
+// The other half of Tab's completion hookup: a run that is no longer
+// *pending* (isLatinLocked() is false) but the node the cursor is
+// currently on already shows a plain-ASCII English value -- a Rule-A
+// "_latin_" literal node the cursor has been moved back onto, or a Rule-B
+// word _handleTabState: just flipped to its English alternate on a
+// *previous* Tab press this same key event cannot see (see the call
+// site: this only runs when the isLatinLocked() branch above did not
+// handle the key, i.e. exactly the "already English, Tab again" case in
+// the F3 spec's Tab precedence). Only ever true for a node this
+// composition's own mixedScript bookkeeping vouches for (kMixedScript's
+// "_latin_" key, or an entry in _mixedScriptAlternates) -- never for an
+// ordinary candidate/user phrase that merely happens to be spelled in
+// ASCII (e.g. a "USB" phrase), which must keep behaving like any other
+// candidate under Tab.
+//
+// Implementation: deletes that one-reading-unit node and re-inserts the
+// completion as a new Rule-A-style literal node via the same
+// accept-then-commit path a still-pending run uses, rather than trying to
+// mutate the existing node's value in place -- ReadingGrid snapshots a
+// node's candidate set immutably at creation (see
+// _acceptLatinCompletionWord's sibling comments elsewhere in this file),
+// so there is no candidate to override *to* here.
+- (BOOL)_handleLatinCompletionOnCommittedNodeWithStateCallback:(void (^)(InputState *))stateCallback
+{
+    McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
+    if (lexicon == nullptr || !_grid->length()) {
+        return NO;
+    }
+    size_t accumulatedCursor = 0;
+    auto nodeIter = _latestWalk.findNodeAt(self.actualCandidateCursorIndex, &accumulatedCursor);
+    if (nodeIter == _latestWalk.nodes.cend()) {
+        return NO;
+    }
+    Formosa::Gramambular2::ReadingGrid::NodePtr node = *nodeIter;
+    if (node == nullptr || node->spanningLength() != 1) {
+        return NO;
+    }
+    std::string reading = node->reading();
+    std::string value = node->value();
+    if (!McBopomofo::MixedScript::IsAllAsciiLetters(value)) {
+        return NO;
+    }
+    BOOL isRuleALiteralNode = reading == "_latin_";
+    BOOL isRuleBAlternateNode = [self _isMixedScriptAlternateWithReading:@(reading.c_str()) value:@(value.c_str())];
+    if (!isRuleALiteralNode && !isRuleBAlternateNode) {
+        return NO;
+    }
+    std::vector<std::string> top1 = lexicon->complete(value, 1);
+    if (top1.empty()) {
+        return NO;
+    }
+
+    _grid->setCursor(accumulatedCursor);
+    _grid->deleteReadingBeforeCursor();
+    [self _acceptLatinCompletionWord:top1[0]];
+    [self _commitMixedScriptLatinRun];
+    stateCallback([self buildInputtingState]);
+    return YES;
+}
+
+// Handles the completion candidate window's own, narrower key semantics
+// (see _isLatinCompletionCandidateState:). Entered from
+// _handleCandidateState: before any of its grid-backed logic (cursor
+// moving, boost/exclude, the "any other letter cancels" branch further
+// down) runs, since none of that applies to a window whose candidates are
+// not grid positions.
+- (BOOL)_handleLatinCompletionCandidateState:(InputStateChoosingCandidate *)state input:(KeyHandlerInput *)input stateCallback:(void (^)(InputState *))stateCallback errorCallback:(void (^)(void))errorCallback
+{
+    UniChar charCode = input.charCode;
+
+    // Esc: close the window and show the plain (not-yet-completed) run --
+    // the pending run itself was never touched while the window was open
+    // (typing more letters re-queries via the branch below instead of
+    // mutating anything here), so this is just "redraw without the
+    // window."
+    if (charCode == 27) {
+        stateCallback([self buildInputtingState]);
+        return YES;
+    }
+
+    // A selection key (Preferences.candidateKeys) picks a completion,
+    // exactly like an ordinary candidate window -- checked before the
+    // "extend the run" branch below because candidateKeys can itself be
+    // lowercase letters (e.g. the built-in "asdfghjkl" preset), which
+    // must still mean "select", not "keep typing" (see
+    // docs/REVERIFY-P1-2026-09-10.md's R3 for the same ambiguity on the
+    // grid-backed candidate window).
+    VTCandidateController *gCurrentCandidateController = [self.delegate candidateControllerForKeyHandler:self];
+    NSString *inputText = input.inputText;
+    for (NSUInteger j = 0, c = gCurrentCandidateController.keyLabels.count; j < c; j++) {
+        VTCandidateKeyLabel *label = gCurrentCandidateController.keyLabels[j];
+        if ([inputText compare:label.key options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+            NSUInteger candidateIndex = [gCurrentCandidateController candidateIndexAtKeyLabelIndex:j];
+            if (candidateIndex != NSUIntegerMax) {
+                [self.delegate keyHandler:self didSelectCandidateAtIndex:candidateIndex candidateController:gCurrentCandidateController];
+                return YES;
+            }
+        }
+    }
+
+    // Typing another lowercase letter extends the pending run and
+    // re-queries instead of closing the window -- the whole point of
+    // this window is to keep listing completions while the user keeps
+    // typing, unlike the grid-backed candidate window's "any other
+    // letter cancels" behavior (see docs/REVIEW-P1-2026-09-10.md's B3,
+    // which that behavior exists to fix, and R2, why it must NOT extend
+    // to this window).
+    BOOL isAsciiLetterKey = charCode < 0x80 && charCode >= 'a' && charCode <= 'z';
+    if (isAsciiLetterKey && !input.isShiftHold) {
+        _mixedScriptTracker->feedKey(_bpmfReadingBuffer->keyboardLayout(), (char)charCode);
+        InputStateChoosingCandidate *choosing = [self _buildLatinCompletionCandidateState];
+        if (choosing != nil) {
+            stateCallback(choosing);
+        } else {
+            // No completions left for the longer run: close the window
+            // and keep going as a plain (uncompleted) Rule-A run.
+            stateCallback([self buildInputtingState]);
+        }
+        return YES;
+    }
+
+    // Anything else (Backspace, arrows, Enter, punctuation, Shift+letter,
+    // an out-of-range selection key...) is not this window's concern:
+    // close it and re-dispatch the same key against the resulting
+    // Inputting state, exactly like the grid-backed candidate window's
+    // own cancel-and-redispatch idiom (:2420 below) -- there is no grid
+    // cursor to restore here since this window never touched _grid.
+    InputStateInputting *inputting = (InputStateInputting *)[self buildInputtingState];
+    stateCallback(inputting);
+    return [self handleInput:input state:inputting stateCallback:stateCallback errorCallback:errorCallback];
 }
 
 - (BOOL)_handleTabState:(InputState *)state shiftIsHold:(BOOL)shiftIsHold stateCallback:(void (^)(InputState *))stateCallback errorCallback:(void (^)(void))errorCallback
@@ -1770,6 +2083,17 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
     NSString *inputText = input.inputText;
     UniChar charCode = input.charCode;
     VTCandidateController *gCurrentCandidateController = [self.delegate candidateControllerForKeyHandler:self];
+
+    // MARK: P3 Latin completion candidate window (see
+    // ~/.claude/plans/zhuyin-ime-personal.md's F3 scope). Not grid-backed
+    // -- the pending run it lists completions for has not been committed
+    // to _grid (see handleInput:'s Tab branch) -- so it needs its own,
+    // narrower handling instead of this method's grid-cursor and
+    // boost/exclude paths below, which all assume the state's candidates
+    // live at a real _grid position.
+    if ([self _isLatinCompletionCandidateState:state]) {
+        return [self _handleLatinCompletionCandidateState:(InputStateChoosingCandidate *)state input:input stateCallback:stateCallback errorCallback:errorCallback];
+    }
 
     if ([state isKindOfClass:[InputStateAssociatedPhrases class]] &&
         [(InputStateAssociatedPhrases *)state autoTriggered]
@@ -2937,6 +3261,28 @@ InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Plai
     NSString *reading = mixedScriptShowsLatinRun
         ? @(_mixedScriptTracker->latinRun().c_str())
         : @(_bpmfReadingBuffer->composedString().c_str());
+
+    // P3 English prediction (see ~/.claude/plans/zhuyin-ime-personal.md's
+    // F3 scope): show the top-1 completion as a tooltip, never touching
+    // the composing buffer itself -- unlike the candidate window, this
+    // must not pop up on every single English letter. complete() already
+    // only returns strictly-longer words, so "there is a completion" and
+    // "it is worth showing" are the same check; the run-length floor is
+    // still explicit here (matching the F3 spec) rather than relying on
+    // that as an accident of complete()'s contract.
+    if (mixedScriptShowsLatinRun && [self _latinCompletionAvailable] && _mixedScriptTracker->latinRun().size() >= 2) {
+        McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
+        if (lexicon != nullptr) {
+            std::vector<std::string> top1 = lexicon->complete(_mixedScriptTracker->latinRun(), 1);
+            if (!top1.empty()) {
+                NSString *predictionTooltip = [@(top1[0].c_str()) stringByAppendingString:@" ⇥"];
+                tooltip = [tooltip length] > 0
+                    ? [NSString stringWithFormat:@"%@ / %@", tooltip, predictionTooltip]
+                    : predictionTooltip;
+            }
+        }
+    }
+
     NSString *tail = @(tailStr.c_str());
     NSString *composedText = [head stringByAppendingString:[reading stringByAppendingString:tail]];
     NSInteger cursorIndex = head.length + reading.length;
