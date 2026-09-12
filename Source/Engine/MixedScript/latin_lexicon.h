@@ -107,8 +107,20 @@ class LatinLexicon {
   // (expected on first run).
   bool loadUserWordList(const std::string& path);
 
-  // Sets the path rememberWord() appends new words to. Call before the
-  // first rememberWord() that should actually persist; without a path,
+  // Discards the user store entirely and reloads it from `path`, which
+  // also becomes the new setUserWordListPath(). The built-in lists are
+  // left alone (they are the expensive half and do not move).
+  //
+  // Exists for one event: the user changing the user-phrase folder while
+  // the lexicon is already loaded. Without it the in-memory user store
+  // stayed the *old* folder's, and the next rememberWord() wrote those
+  // words into the new folder's file (docs/REVERIFY-P3-2026-09-12.md's
+  // P-1). LanguageModelManager's +reloadLatinUserWordList is the only
+  // production caller, from AppDelegate's updateUserPhrases().
+  void reloadUserWordList(const std::string& path);
+
+  // Sets the path rememberWord() writes to. Call before the first
+  // rememberWord() that should actually persist; without a path,
   // rememberWord() only affects this process's in-memory lookups.
   void setUserWordListPath(const std::string& path) {
     userWordListPath_ = path;
@@ -188,10 +200,18 @@ class LatinLexicon {
   // up to `n` known words that start with (but are longer than) `prefix`,
   // best completion first. Ordering: a *confirmed* user word (score >=
   // kUserWordConfirmedScore) beats every builtin word, ranked among
-  // themselves by score (highest first); everything else -- including an
-  // unconfirmed user word, which is why one passive sighting no longer
-  // promotes anything -- is ranked by rank(), and anything still tied
-  // breaks alphabetically.
+  // themselves by score (highest first); a word the dictionary knows is
+  // ranked by rank() no matter what the user store says about it (which
+  // is why one passive sighting promotes nothing), and anything still
+  // tied breaks alphabetically.
+  //
+  // An *unconfirmed* user word the dictionary does not know is not
+  // returned at all -- not last, not at all. That is the disk half of
+  // the learn-from-typing staging policy (see rememberWord()): a word
+  // nothing but a single typed run vouches for is written down so the
+  // evidence survives a relaunch, but it is not a suggestion yet, and a
+  // suggestion the user never asked for is exactly the failure
+  // docs/REVIEW-P3-2026-09-11.md's B2 was about.
   //
   // O(k log n) where k is the number of matching words in the dictionary,
   // not the dictionary's total size: uses sortedWords_'s existing binary
@@ -203,25 +223,6 @@ class LatinLexicon {
   size_t builtinWordCount() const { return builtinRank_.size(); }
   size_t userWordCount() const { return userWords_.size(); }
 
-  // P3 (docs/REVIEW-P3-2026-09-11.md's B2). Stages one *sighting* of a
-  // typed word that is not (yet) worth writing to disk, entirely in
-  // memory -- nothing here is ever persisted or visible to
-  // isWord()/complete(). Returns how many sightings this word now has.
-  // KeyHandler's learn-from-typing hook uses this so that a word the
-  // dictionary does not know has to be typed and committed twice, in two
-  // separate commits, before it reaches latin-user.txt at all: a single
-  // typo, a half-finished word, or an English run that swallowed the
-  // following Chinese keys (mixed_script_tracker.h's locked-run
-  // behaviour) is indistinguishable from a real new word when looked at
-  // once, so "twice" is the only signal available. Cleared by reset() and
-  // by rememberWord() promoting the word for real.
-  int notePendingTypedWord(const std::string& word);
-
-  // How many sightings notePendingTypedWord() has staged for `word`
-  // (0 if none). Testing/diagnostics; nothing in production branches on
-  // it beyond the learn-from-typing hook's own threshold check.
-  int pendingTypedWordSightings(const std::string& word) const;
-
   // Records that the user accepted `word` as English -- a P1
   // mixedScript Tab/candidate-window pick (see KeyHandler's
   // fixNodeWithReading:) or a P3 completion accept (Tab or the completion
@@ -230,13 +231,17 @@ class LatinLexicon {
   // is the first time. Pass kExplicitAcceptWeight for a deliberate
   // accept (which confirms the word on its own) and 1 for one passive
   // learn-from-typing sighting; see kUserWordConfirmedScore for what
-  // "confirmed" then buys. No-op if `word` is shorter than 2
-  // characters. Rewrites the
-  // *entire* user word list file (not just an append) when
+  // "confirmed" then buys -- and complete()'s doc for why a word only
+  // *this* store knows about stays out of the suggestions until it is
+  // confirmed. No-op if `word` is shorter than 2 characters.
+  //
+  // Rewrites the whole user word list file (not an append) when
   // setUserWordListPath() has been called, since an existing word's count
   // has to change in place; the user list is small (tens to hundreds of
-  // entries, never the 200k-word builtin list) so this is cheap. Makes
-  // the word (and its new count) available to
+  // entries, never the 200k-word builtin list) so this is cheap. The
+  // rewrite merges with whatever is on disk rather than overwriting it,
+  // and lands through a temp file plus rename -- see persistUserWords().
+  // Makes the word (and its new count) available to
   // isWord()/isUserWord()/isPrefix()/rank()/complete() immediately either
   // way.
   //
@@ -266,9 +271,20 @@ class LatinLexicon {
   // sourceTier()'s builtin half: maps a merged rank back to the file it
   // came from and that file's own in-file rank.
   int builtinTierForRank(int wordRank) const;
-  // Rewrites userWordListPath_ from userWords_ in full. Returns true if
-  // there is no path to write to (nothing to do, not a failure) or the
-  // write succeeded.
+  // Rewrites userWordListPath_ from userWords_ *merged with whatever the
+  // file currently holds* (per word, the larger of the two counts wins),
+  // through a sibling temp file that is then renamed over the target.
+  //
+  // Both halves of that exist for docs/REVERIFY-P3-2026-09-12.md's P-1.
+  // The old implementation truncated the target and dumped userWords_
+  // over it, which meant the file this process had never read -- the new
+  // folder's, right after the user moved the user-phrase location, or a
+  // copy another machine had added to over Dropbox -- lost every word it
+  // held. Merging makes the write additive; the rename makes it
+  // all-or-nothing.
+  //
+  // Returns true if there is no path to write to (nothing to do, not a
+  // failure) or the write succeeded.
   bool persistUserWords() const;
 
   // word -> rank (built-in list only; 0 = most frequent).
@@ -277,9 +293,6 @@ class LatinLexicon {
   // its doc for what adds how much, and complete()'s for why this exists
   // alongside rank()/isUserWord()'s simpler boolean view of this store).
   std::unordered_map<std::string, int> userWords_;
-  // word -> sightings staged by notePendingTypedWord(). In-memory only:
-  // never loaded, never persisted, dropped on reset().
-  std::unordered_map<std::string, int> pendingTypedWords_;
   // The merged-rank value each loadBuiltinWordList() call started at, in
   // load order -- sourceTier()'s only way back from a merged rank to the
   // file's own tier numbering.

@@ -45,6 +45,8 @@ static McBopomofo::MixedScript::LatinLexicon gLatinLexicon;
 // LTLoadMixedScriptLexicon().
 static std::atomic<bool> gLatinLexiconReady { false };
 static BOOL gLatinLexiconLoadStarted = NO;
+// Testing only; see +dataFolderOverrideForTesting.
+static NSString *gDataFolderOverrideForTesting = nil;
 
 static NSString *const kUserDataTemplateName = @"template-data";
 static NSString *const kUserDataPlainBopomofoTemplateName = @"template-data-plain-bpmf";
@@ -497,6 +499,13 @@ static void LTLoadMixedScriptLexicon()
 
 + (NSString *)dataFolderPath
 {
+    // Testing only, and deliberately ahead of the preference read rather
+    // than folded into it: see +dataFolderOverrideForTesting's doc for why
+    // a test must not redirect its data folder through a preference key
+    // every process on this machine shares.
+    if (gDataFolderOverrideForTesting != nil) {
+        return gDataFolderOverrideForTesting;
+    }
     BOOL useCustomLocation = Preferences.useCustomUserPhraseLocation;
     if (!useCustomLocation) {
         return [UserPhraseLocationHelper defaultUserPhraseLocation];
@@ -555,6 +564,37 @@ static void LTLoadMixedScriptLexicon()
 + (BOOL)ensureLatinUserWordListFolder
 {
     return [self checkIfUserDataFolderExists];
+}
+
++ (NSString *)dataFolderOverrideForTesting
+{
+    return gDataFolderOverrideForTesting;
+}
+
++ (void)setDataFolderOverrideForTesting:(NSString *)path
+{
+    gDataFolderOverrideForTesting = [path copy];
+}
+
++ (void)reloadLatinUserWordList
+{
+    // Nothing to reload before the first load has published: the
+    // background block is documented to be gLatinLexicon's only writer
+    // until then (see LTLoadMixedScriptLexicon), and touching the object
+    // from here would be a data race on it from two threads -- the same
+    // reasoning +resetLatinLexiconForTesting spells out at length.
+    //
+    // The residual case is a folder change landing inside the ~150 ms that
+    // load takes, which would leave the *previous* folder's words in
+    // memory until the next relaunch. Nothing is lost when that happens:
+    // persistUserWords() merges into the target file rather than
+    // overwriting it, so the stale memory can only make a suggestion look
+    // out of date, never delete a word.
+    if (!gLatinLexiconReady.load(std::memory_order_acquire)) {
+        return;
+    }
+    NSString *userPath = [self latinUserWordListPath];
+    gLatinLexicon.reloadUserWordList(userPath.UTF8String);
 }
 
 + (void)resetLatinLexiconForTesting

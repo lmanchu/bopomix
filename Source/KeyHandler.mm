@@ -63,17 +63,28 @@ static NSString *const kLatinCompletionReading = @"_latin_completion_";
 // P3 learn-from-typing policy (see _learnTypedLatinWordIfEligible:).
 // The length bounds match tools/lexicon/build_lexicon.py's own filter, so
 // learning can never add something the dictionary generator would have
-// thrown away; the sighting count is what keeps a word the dictionary
-// does not know out of latin-user.txt until it has been typed that many
-// separate times (docs/REVIEW-P3-2026-09-11.md's B2).
+// thrown away.
 static const size_t kMinLearnedLatinWordLength = 3;
 static const size_t kMaxLearnedLatinWordLength = 20;
-static const int kTypedWordSightingsBeforeLearning = 2;
 
 // P3 fix #3's "the user finished typing this word" floor -- see
 // _offeredCompletionFor:lexicon:. Below this, a dictionary hit ("pr", "th") is
 // a prefix in progress, not a finished word.
 static const size_t kMinFinishedLatinWordLength = 3;
+
+// How many letters a pending Latin run needs before the prediction
+// tooltip is allowed to appear (see buildInputtingState's tooltip
+// block). Tab and Shift+Tab have no such floor -- they are things the
+// user asked for, and stay available from two letters on.
+//
+// Raised from 2 to 4 by docs/REVERIFY-P3-2026-09-12.md's dogfood noise
+// profile: over 100 keystrokes of 17 words the reviewer types daily, a
+// floor of 2 put a *wrong* suggestion on screen 33 times to save 7
+// keystrokes ("the" advertising "throughput" by its second letter). At 4
+// the wrong frames drop to 11 and only one of the saved keystrokes goes
+// with them, because the seed-list hits that pay for themselves
+// ("roadmap", "throughput") are still on offer by the fourth letter.
+static const size_t kMinLatinRunLengthForPredictionTooltip = 4;
 
 @implementation KeyHandler {
     std::shared_ptr<Formosa::Gramambular2::LanguageModel> _emptySharedPtr;
@@ -250,21 +261,11 @@ static const size_t kMinFinishedLatinWordLength = 3;
     // registered (_mixedScriptAlternates), not merely any candidate whose
     // value happens to be all ASCII letters.
     if ([self _mixedScriptAvailable] && McBopomofo::MixedScript::IsAllAsciiLetters(value.UTF8String) && [self _isMixedScriptAlternateWithReading:reading value:value]) {
-        McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
-        if (lexicon != nullptr) {
-            // Re-resolved every time rather than only at load: the folder
-            // follows Preferences.useCustomUserPhraseLocation, which the
-            // user can change after the lexicon has already loaded.
-            NSString *userWordListPath = [LanguageModelManager latinUserWordListPath];
-            lexicon->setUserWordListPath(userWordListPath.UTF8String);
-            [LanguageModelManager ensureLatinUserWordListFolder];
-            if (!lexicon->rememberWord(value.UTF8String)) {
-                // Never block typing on this; the word is still live in
-                // memory for this session, it just will not survive a
-                // relaunch.
-                NSLog(@"warning: could not persist mixedScript word to %@", userWordListPath);
-            }
-        }
+        // Same shared write path as every other place a Latin word is
+        // learned, so the folder is re-resolved (and the write merged
+        // rather than overwritten) identically here -- see
+        // _rememberLatinWord:weight:.
+        [self _rememberLatinWord:std::string(value.UTF8String)];
     }
 
     [self _walk];
@@ -1235,7 +1236,13 @@ static const size_t kMinFinishedLatinWordLength = 3;
     }
     // Re-resolved every time rather than only at load: the folder follows
     // Preferences.useCustomUserPhraseLocation, which the user can change
-    // after the lexicon has already loaded.
+    // after the lexicon has already loaded. AppDelegate's
+    // updateUserPhrases() reloads the lexicon when that happens
+    // (+reloadLatinUserWordList), and LatinLexicon::persistUserWords()
+    // merges rather than overwrites, so a folder change neither carries
+    // the old folder's words along nor deletes the new folder's
+    // (docs/REVERIFY-P3-2026-09-12.md's P-1) -- this line is simply what
+    // aims the write at the right file in the first place.
     NSString *userWordListPath = [LanguageModelManager latinUserWordListPath];
     lexicon->setUserWordListPath(userWordListPath.UTF8String);
     [LanguageModelManager ensureLatinUserWordListFolder];
@@ -1257,32 +1264,40 @@ static const size_t kMinFinishedLatinWordLength = 3;
 // word (upstream's separate "force English" gesture, which never touches
 // _mixedScriptTracker at all) can never reach here in the first place.
 //
-// The committed run is only ever a *candidate* for the user lexicon
+// One commit is one *sighting*, worth a score of 1 and nothing more
 // (docs/REVIEW-P3-2026-09-11.md's B2, where every committed run was
-// written straight to disk -- typos, 40-letter mashes, and English runs
-// that had swallowed the following Chinese keys all became permanent
-// top-ranked completions):
+// written straight to disk at full strength -- typos, 40-letter mashes,
+// and English runs that had swallowed the following Chinese keys all
+// became permanent top-ranked completions). A run has to reach
+// LatinLexicon::kUserWordConfirmedScore before it changes any ranking,
+// and a word the dictionary does not know is not even *offered* until
+// then (see LatinLexicon::complete()), so a second, separate commit of
+// the identical string is still what promotes a genuinely new word.
 //
-//   (a) length 3..20, lowercase ASCII only, or it is not considered at
-//       all. The upper bound matches tools/lexicon/build_lexicon.py's own
-//       filter, so nothing can be learned that the dictionary generator
-//       would itself have rejected;
-//   (b) a run the lexicon already knows (dictionary, tech seed, or a word
-//       this user has already learned) is recorded immediately;
-//   (c) any other run is staged in memory only (see
-//       LatinLexicon::notePendingTypedWord) and reaches latin-user.txt
-//       only once it has been committed kTypedWordSightingsBeforeLearning
-//       separate times.
-//
-// (c) is the whole defence for the case a run cannot report on itself:
-// a Rule-A run stays locked and keeps absorbing letters until a
-// non-letter key (see MixedScriptTrackerTest's
+// That threshold is the whole defence for the case a run cannot report
+// on itself: a Rule-A run stays locked and keeps absorbing letters until
+// a non-letter key (see MixedScriptTrackerTest's
 // ALockedRunKeepsAbsorbingLettersUntilANonLetterKey), so "acersu" -- an
 // English word with the start of a Chinese syllable glued onto it -- is
 // structurally indistinguishable from a genuine new word when seen once.
-// Requiring the identical string twice, in two separate commits, is the
-// only signal available; a glued-together run essentially never repeats
-// verbatim, a real new word does.
+// A glued-together run essentially never repeats verbatim, a real new
+// word does.
+//
+// What changed in round 4 (docs/REVERIFY-P3-2026-09-12.md's "pending
+// 落地") is only *where* the first sighting is kept. It used to live in
+// an in-memory map that a logout, an input-method switch or a crash
+// threw away, so the two commits had to land inside one process
+// lifetime -- and the words that actually need learning (a name, a
+// product, an internal codename) are typed once or twice a day, hours
+// apart. The first sighting is written to latin-user.txt now, which
+// makes "twice" mean twice, ever. The cost is that the file contains
+// score-1 words the user never confirmed; they are inert (nothing
+// suggests them) and the README says how to delete them.
+//
+// The eligibility filter is unchanged: length 3..20 and lowercase ASCII
+// only, the upper bound matching tools/lexicon/build_lexicon.py's own
+// filter so nothing can be learned that the dictionary generator would
+// itself have rejected.
 - (void)_learnTypedLatinWordIfEligible:(const std::string&)word
 {
     if (!Preferences.latinLearnTypedWords) {
@@ -1301,22 +1316,7 @@ static const size_t kMinFinishedLatinWordLength = 3;
     if (!McBopomofo::MixedScript::IsAllAsciiLetters(word)) {
         return;
     }
-    McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
-    if (lexicon == nullptr) {
-        return;
-    }
-    if (lexicon->isWord(word)) {
-        [self _rememberLatinWord:word weight:1];
-        return;
-    }
-    int sightings = lexicon->notePendingTypedWord(word);
-    if (sightings < kTypedWordSightingsBeforeLearning) {
-        return;
-    }
-    // The stored score stays "how many times this was seen", so a word
-    // promoted out of staging arrives already carrying the sightings that
-    // earned it rather than looking like a first-time entry.
-    [self _rememberLatinWord:word weight:sightings];
+    [self _rememberLatinWord:word weight:1];
 }
 
 // Puts one literal space into the grid, as its own node, using the same
@@ -3548,16 +3548,19 @@ static const size_t kMinFinishedLatinWordLength = 3;
     // the composing buffer itself -- unlike the candidate window, this
     // must not pop up on every single English letter. complete() already
     // only returns strictly-longer words, so "there is a completion" and
-    // "it is worth showing" are the same check; the run-length floor is
-    // still explicit here (matching the F3 spec) rather than relying on
-    // that as an accident of complete()'s contract. P3 fix #3 adds one
+    // "it is worth showing" are the same check; the run-length floor
+    // (kMinLatinRunLengthForPredictionTooltip, and see its doc for why it
+    // is deliberately stricter than what Tab itself accepts) is still
+    // explicit here rather than relying on that as an accident of
+    // complete()'s contract. P3 fix #3 adds one
     // more condition, which _offeredCompletionFor:lexicon: applies: a run
     // that is itself already a finished word shows no prediction at all,
     // matching Tab's own refusal to grow it -- showing "acerbic ⇥" under
     // "acer" would advertise a completion Tab then declines to perform.
     // Asking that one question (rather than the gate and then the lookup)
     // is also what keeps this to a single complete() scan per keystroke.
-    if (mixedScriptShowsLatinRun && [self _latinCompletionAvailable] && _mixedScriptTracker->latinRun().size() >= 2) {
+    if (mixedScriptShowsLatinRun && [self _latinCompletionAvailable]
+        && _mixedScriptTracker->latinRun().size() >= kMinLatinRunLengthForPredictionTooltip) {
         McBopomofo::MixedScript::LatinLexicon *lexicon = [LanguageModelManager latinLexicon];
         std::string run = _mixedScriptTracker->latinRun();
         std::string offered = [self _offeredCompletionFor:run lexicon:lexicon];

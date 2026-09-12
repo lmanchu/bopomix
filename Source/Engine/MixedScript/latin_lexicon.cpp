@@ -26,8 +26,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <cstdio>
 #include <fstream>
-#include <limits>
 #include <sstream>
 
 namespace McBopomofo::MixedScript {
@@ -42,6 +42,34 @@ std::string LatinLexicon::ToLowerAscii(const std::string& text) {
 namespace {
 bool LessByPointee(const std::string* a, const std::string* b) {
   return *a < *b;
+}
+
+// One line of a user word list ("word" or "word\tcount"), as both
+// loadUserWordList() and persistUserWords()'s read-back half parse it.
+// Returns false for a line that carries no word at all (blank, comment).
+// `*count` is clamped to at least 1, and a bare word means 1, so a P1-era
+// file (written before P3 added counting) round-trips unchanged.
+bool ParseUserWordLine(const std::string& rawLine, std::string* word,
+                       int* count) {
+  std::string line = rawLine;
+  if (!line.empty() && line.back() == '\r') {
+    line.pop_back();
+  }
+  if (line.empty() || line[0] == '#') {
+    return false;
+  }
+  *word = line;
+  *count = 1;
+  size_t tab = line.find('\t');
+  if (tab != std::string::npos) {
+    *word = line.substr(0, tab);
+    std::istringstream countStream(line.substr(tab + 1));
+    countStream >> *count;
+    if (*count < 1) {
+      *count = 1;
+    }
+  }
+  return !word->empty();
 }
 }  // namespace
 
@@ -129,25 +157,9 @@ bool LatinLexicon::loadUserWordList(const std::string& path) {
   const size_t sortedSizeBefore = sortedWords_.size();
   std::string line;
   while (std::getline(file, line)) {
-    if (!line.empty() && line.back() == '\r') {
-      line.pop_back();
-    }
-    if (line.empty() || line[0] == '#') {
-      continue;
-    }
-
-    std::string word = line;
+    std::string word;
     int count = 1;
-    size_t tab = line.find('\t');
-    if (tab != std::string::npos) {
-      word = line.substr(0, tab);
-      std::istringstream countStream(line.substr(tab + 1));
-      countStream >> count;
-      if (count < 1) {
-        count = 1;
-      }
-    }
-    if (word.empty()) {
+    if (!ParseUserWordLine(line, &word, &count)) {
       continue;
     }
 
@@ -166,6 +178,24 @@ bool LatinLexicon::loadUserWordList(const std::string& path) {
   }
   mergeNewSortedWords(sortedSizeBefore);
   return true;
+}
+
+void LatinLexicon::reloadUserWordList(const std::string& path) {
+  // sortedWords_ points at keys inside builtinRank_ *and* userWords_;
+  // loadUserWordList() only pushes a user word when the builtin store
+  // does not already have it, so "not in builtinRank_" identifies
+  // exactly the pointers that are about to dangle. Dropping them with a
+  // stable remove_if keeps the rest of the vector ordered, which is what
+  // the binary searches in isPrefix()/complete() rely on.
+  sortedWords_.erase(
+      std::remove_if(sortedWords_.begin(), sortedWords_.end(),
+                     [this](const std::string* word) {
+                       return builtinRank_.find(*word) == builtinRank_.end();
+                     }),
+      sortedWords_.end());
+  userWords_.clear();
+  userWordListPath_ = path;
+  loadUserWordList(path);
 }
 
 bool LatinLexicon::isWord(const std::string& text) const {
@@ -250,18 +280,6 @@ int LatinLexicon::sourceTier(const std::string& text) const {
   return kUnknownSourceTier;
 }
 
-int LatinLexicon::notePendingTypedWord(const std::string& word) {
-  if (word.empty()) {
-    return 0;
-  }
-  return ++pendingTypedWords_[ToLowerAscii(word)];
-}
-
-int LatinLexicon::pendingTypedWordSightings(const std::string& word) const {
-  auto it = pendingTypedWords_.find(ToLowerAscii(word));
-  return it == pendingTypedWords_.end() ? 0 : it->second;
-}
-
 std::vector<std::string> LatinLexicon::complete(const std::string& prefix,
                                                   size_t n) const {
   std::vector<std::string> results;
@@ -312,14 +330,15 @@ std::vector<std::string> LatinLexicon::complete(const std::string& prefix,
       candidate.secondary = -static_cast<long long>(userIt->second);
     } else {
       auto builtinIt = builtinRank_.find(word);
-      // An unconfirmed word with no builtin rank at all (only reachable
-      // from a hand-edited or pre-P3 user file: the learn-from-typing
-      // policy never writes a non-dictionary word below the confirmed
-      // score) sorts behind every ranked word rather than ahead of them,
-      // which is what a secondary of 0 used to mean.
-      candidate.secondary = builtinIt != builtinRank_.end()
-          ? builtinIt->second
-          : std::numeric_limits<long long>::max();
+      if (builtinIt == builtinRank_.end()) {
+        // An unconfirmed word the dictionary has never heard of: one
+        // typed sighting staged on disk (see rememberWord()), a
+        // hand-edited line, or a pre-P3 file. It is a *record*, not a
+        // suggestion -- offering it here is what B2 was about -- so it is
+        // skipped entirely rather than sorted last.
+        continue;
+      }
+      candidate.secondary = builtinIt->second;
     }
 
     // std::push_heap/pop_heap with comparator `comp` keep front() at the
@@ -352,26 +371,67 @@ bool LatinLexicon::persistUserWords() const {
     return true;
   }
   // rememberWord() only ever changes one word's count, but that word may
-  // already be anywhere in the file -- an append-only write can no longer
-  // express "this existing word's count went up", so the whole (small)
-  // user list is rewritten instead. std::ios::trunc discards the old
-  // content first, matching a full-file overwrite.
-  std::ofstream file(userWordListPath_, std::ios::trunc);
-  if (!file.is_open()) {
-    return false;
+  // already be anywhere in the file -- an append-only write cannot
+  // express "this existing word's count went up" -- so the whole (small)
+  // user list is rewritten.
+  //
+  // What is rewritten is userWords_ merged *into* whatever the file holds
+  // right now, per word the larger count winning, not userWords_ on its
+  // own. The file is not guaranteed to be the one this process loaded:
+  // the user can move the user-phrase folder mid-session and the folder
+  // is often inside Dropbox, so the target may hold words this process
+  // has never seen. Truncating it deleted them
+  // (docs/REVERIFY-P3-2026-09-12.md's P-1).
+  std::unordered_map<std::string, int> merged;
+  {
+    std::ifstream existing(userWordListPath_);
+    std::string line;
+    while (std::getline(existing, line)) {
+      std::string word;
+      int count = 1;
+      if (!ParseUserWordLine(line, &word, &count)) {
+        continue;
+      }
+      int& stored = merged[ToLowerAscii(word)];
+      stored = std::max(stored, count);
+    }
   }
   for (const auto& entry : userWords_) {
-    file << entry.first << "\t" << entry.second << "\n";
+    int& stored = merged[entry.first];
+    stored = std::max(stored, entry.second);
   }
-  file.flush();
-  return file.good();
+
+  // Write a sibling temp file and rename it over the target: rename(2)
+  // within one directory is atomic, so a crash or a full disk mid-write
+  // leaves either the old list or the new one, never a half-written file
+  // where the user's vocabulary used to be.
+  const std::string tempPath = userWordListPath_ + ".tmp";
+  {
+    std::ofstream file(tempPath, std::ios::trunc);
+    if (!file.is_open()) {
+      return false;
+    }
+    for (const auto& entry : merged) {
+      file << entry.first << "\t" << entry.second << "\n";
+    }
+    file.flush();
+    if (!file.good()) {
+      file.close();
+      std::remove(tempPath.c_str());
+      return false;
+    }
+  }
+  if (std::rename(tempPath.c_str(), userWordListPath_.c_str()) != 0) {
+    std::remove(tempPath.c_str());
+    return false;
+  }
+  return true;
 }
 
 void LatinLexicon::reset() {
   builtinRank_.clear();
   userWords_.clear();
   sortedWords_.clear();
-  pendingTypedWords_.clear();
   builtinFileRankStarts_.clear();
   userWordListPath_.clear();
   nextBuiltinRank_ = 0;
@@ -385,9 +445,6 @@ bool LatinLexicon::rememberWord(const std::string& word, int weight) {
     weight = 1;
   }
   std::string lowerWord = ToLowerAscii(word);
-  // It is a user word now, so whatever partial evidence was staged for it
-  // has been spent (see notePendingTypedWord()).
-  pendingTypedWords_.erase(lowerWord);
   auto existing = userWords_.find(lowerWord);
   if (existing == userWords_.end()) {
     auto inserted = userWords_.emplace(lowerWord, weight).first;

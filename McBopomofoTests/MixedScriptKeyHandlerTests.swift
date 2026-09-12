@@ -67,7 +67,12 @@ class MixedScriptKeyHandlerTests: XCTestCase {
 
         // Anything these tests "learn" (an explicit Tab pick appends to
         // latin-user.txt) must land in a throwaway folder, never in the
-        // real one on this machine.
+        // real one on this machine. Injected into LanguageModelManager
+        // directly rather than through
+        // Preferences.customUserPhraseLocation: that key is shared with
+        // every other process on the machine, including the installed
+        // input method -- see dataFolderOverrideForTesting's doc and
+        // docs/REVERIFY-P3-2026-09-12.md's P-2.
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("mixime-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
@@ -76,10 +81,10 @@ class MixedScriptKeyHandlerTests: XCTestCase {
         // Removed through a teardown block, not tearDownWithError, so a
         // failing test does not leave the folder behind in $TMPDIR.
         addTeardownBlock {
+            LanguageModelManager.dataFolderOverrideForTesting = nil
             try? FileManager.default.removeItem(at: folder)
         }
-        Preferences.useCustomUserPhraseLocation = true
-        Preferences.customUserPhraseLocation = folder.path
+        LanguageModelManager.dataFolderOverrideForTesting = folder.path
 
         // P3 fix #6 (see docs/REVERIFY-P1-2026-09-10.md's R12): the Latin
         // lexicon is a process-wide global every KeyHandler-level XCTest

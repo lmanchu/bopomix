@@ -31,6 +31,19 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)loadDataModel:(InputMode)mode;
 + (void)loadUserPhrasesWithPlainBopomofoEnabled:(BOOL)userPhraseForPlainBopomofo NS_SWIFT_NAME(loadUserPhrases(enableForPlainBopomofo:));
 + (void)loadUserPhraseReplacement;
+/// P1 zh/en mixed typing: re-reads `latin-user.txt` from wherever
+/// +dataFolderPath resolves to *now*, replacing the Latin lexicon's user
+/// store (the built-in word lists are left alone). No-op while the lexicon
+/// is still loading -- the load reads the same preference itself, so it
+/// already lands on the current folder.
+///
+/// Called from the same place the Chinese user phrases are reloaded
+/// (AppDelegate's updateUserPhrases(), i.e. on launch, on a
+/// userPhraseLocationDidChange notification, and on an FSEvent in the
+/// folder). Without it, moving the user-phrase folder left the old
+/// folder's Latin words in memory while writes went to the new folder's
+/// file -- docs/REVERIFY-P3-2026-09-12.md's P-1.
++ (void)reloadLatinUserWordList;
 + (void)setupDataModelValueConverter;
 + (BOOL)checkIfUserLanguageModelFilesExist;
 
@@ -66,12 +79,26 @@ NS_ASSUME_NONNULL_BEGIN
 /// XCTest KeyHandler-level test target shares this one process-wide
 /// object, so an explicit Tab/candidate pick in one test silently changed
 /// another test's "top completion" ranking whenever both ran in the same
-/// process. Callers should set Preferences.useCustomUserPhraseLocation and
-/// Preferences.customUserPhraseLocation to a throwaway folder *before*
-/// calling this (matching the existing per-test temp-folder pattern),
-/// since the reload that follows re-resolves +latinUserWordListPath from
-/// whatever is current.
+/// process. Callers should set +dataFolderOverrideForTesting to a
+/// throwaway folder *before* calling this (matching the existing per-test
+/// temp-folder pattern), since the reload that follows re-resolves
+/// +latinUserWordListPath from whatever is current.
 + (void)resetLatinLexiconForTesting;
+/// When non-nil, +dataFolderPath returns this instead of consulting
+/// Preferences at all -- which is the point: `UseCustomUserPhraseLocation`
+/// / `CustomUserPhraseLocation` are keys in the real
+/// `org.openvanilla.inputmethod.McBopomofo` domain, shared by every
+/// process on the machine, so a test that redirected its user-data folder
+/// by writing them was redirecting the *installed* input method too, and
+/// was one lost race away from having its own writes land in the real
+/// folder. That is exactly what `-parallel-testing-enabled YES` did:
+/// 130 corpus words in the developer's own `latin-user.txt`
+/// (docs/REVERIFY-P3-2026-09-12.md's P-2). A process-local override cannot
+/// do that no matter how the suite is scheduled.
+///
+/// Set it in `setUpWithError()` and clear it in a teardown block. Nothing
+/// in production ever sets it.
+@property (class, nullable, copy, nonatomic) NSString *dataFolderOverrideForTesting;
 /// True if `word` is a known word in the process-wide Latin lexicon
 /// (builtin or user store, matching LatinLexicon::isWord()). Exposes just
 /// enough of the lexicon to Swift XCTest code for P3's eval categorization

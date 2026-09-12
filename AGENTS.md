@@ -67,21 +67,42 @@ writes `UserDefaults.standard`, i.e. the real
 file shared by *every* parallel test-runner process. `PreferencesTests`
 removes every key in that domain in its initializer and asserts on
 default values, while the KeyHandler suites are simultaneously setting
-`MixedScriptEnabled`, `LatinCompletionEnabled`,
-`LatinLearnTypedWords` and `CustomUserPhraseLocation` from other
-processes -- so each suite sees the others' writes. (The process-wide
-`LatinLexicon` and `resetLatinLexiconForTesting()`'s wait were the two
-suspects in `docs/REVIEW-P3-2026-09-11.md`'s N15; both are per-process
-and neither is the cause.) Making this work means plumbing a
-test-specific `UserDefaults` suite through `Preferences`' property
-wrappers, which is a real refactor, not a test fix.
+`MixedScriptEnabled`, `LatinCompletionEnabled` and
+`LatinLearnTypedWords` from other processes -- so each suite sees the
+others' writes. (The process-wide `LatinLexicon` and
+`resetLatinLexiconForTesting()`'s wait were the two suspects in
+`docs/REVIEW-P3-2026-09-11.md`'s N15; both are per-process and neither
+is the cause.) Making this work means giving `Preferences`' property
+wrappers a test-specific `UserDefaults` suite -- each wrapper already
+has a `container` property, so it is a change of defaults plus a place
+to set them from, not a rewrite, but it has not been done.
+
+What *has* been fixed is the part that damaged real data rather than
+just reporting noise. A parallel run used to leave 130 eval-corpus words
+in `~/Library/Application Support/McBopomofo/latin-user.txt` -- the
+installed input method's own word list -- because the KeyHandler suites
+redirected their user-data folder by writing
+`CustomUserPhraseLocation`, and one worker clearing that key while
+another resolved it landed the second worker's writes in the default
+folder (`docs/REVERIFY-P3-2026-09-12.md`'s P-2). Tests now redirect it
+with `LanguageModelManager.dataFolderOverrideForTesting`, which is
+process-local and cannot be raced.
 
 **Preferences are the developer's own live input-method settings.** Any
 test that touches `Preferences` must call
 `PreferenceSandbox.install(on: self)` as the first statement of
 `setUpWithError()` -- writing saved values back in `tearDownWithError` is
 not enough, because it both creates keys that were never in the file and
-is skipped entirely when a test fails. Verify with:
+is skipped entirely when a test fails. Anything that needs the
+*user-data folder* must set
+`LanguageModelManager.dataFolderOverrideForTesting` in `setUpWithError()`
+and clear it in a teardown block; never write
+`UseCustomUserPhraseLocation` / `CustomUserPhraseLocation` from a test.
+Note also that the test host is the McBopomofo app itself, so
+`main.swift` runs before any test does; its `Preferences.populateDefaults()`
+is skipped under XCTest (`Preferences.isRunningUnderXCTest`) because
+those writes land earlier than `PreferenceSandbox` can snapshot them.
+Verify all of it with:
 
 ```bash
 tools/eval/check_plist_unchanged.sh \
@@ -90,7 +111,8 @@ tools/eval/check_plist_unchanged.sh \
     CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM="" test
 ```
 
-which fails if the run changed a single preference key.
+which fails if the run changed a single preference key, or created or
+modified `~/Library/Application Support/McBopomofo/`.
 
 #### C++ Engine Tests
 ```bash
