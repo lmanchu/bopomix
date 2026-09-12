@@ -89,7 +89,12 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
 
         // Anything these tests "learn" (an explicit Tab/candidate pick
         // appends to latin-user.txt) must land in a throwaway folder,
-        // never in the real one on this machine.
+        // never in the real one on this machine. Injected into
+        // LanguageModelManager directly rather than through
+        // Preferences.customUserPhraseLocation: that key is shared with
+        // every other process on the machine, including the installed
+        // input method -- see dataFolderOverrideForTesting's doc and
+        // docs/REVERIFY-P3-2026-09-12.md's P-2.
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("mixime-completion-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
@@ -98,10 +103,10 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         // Removed through a teardown block, not tearDownWithError, so a
         // failing test does not leave the folder behind in $TMPDIR.
         addTeardownBlock {
+            LanguageModelManager.dataFolderOverrideForTesting = nil
             try? FileManager.default.removeItem(at: folder)
         }
-        Preferences.useCustomUserPhraseLocation = true
-        Preferences.customUserPhraseLocation = folder.path
+        LanguageModelManager.dataFolderOverrideForTesting = folder.path
 
         // P3 fix #6 (see docs/REVERIFY-P1-2026-09-10.md's R12): reset the
         // process-wide Latin lexicon before every test so this file's
@@ -234,16 +239,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     /// Everything the learn-from-typing / accept paths have written to
     /// this test's throwaway latin-user.txt, as word -> score.
     private var learnedLatinWords: [String: Int] {
-        let path = temporaryUserDataFolder!
-            .appendingPathComponent("latin-user.txt").path
-        let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
-        var result: [String: Int] = [:]
-        for line in text.split(separator: "\n") {
-            let fields = line.split(separator: "\t")
-            guard let word = fields.first else { continue }
-            result[String(word)] = fields.count > 1 ? Int(fields[1]) ?? 1 : 1
-        }
-        return result
+        latinUserWords(in: temporaryUserDataFolder!)
     }
 
     private var tooltip: String {
@@ -259,6 +255,28 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
             return nil
         }
         return String(tooltip.dropLast(2))
+    }
+
+    /// What Tab would complete the current run to, read from the
+    /// Shift+Tab candidate window rather than the prediction tooltip, and
+    /// leaving the run exactly as it was found.
+    ///
+    /// Needed because the tooltip has a run-length floor the accept paths
+    /// deliberately do not share (KeyHandler's
+    /// kMinLatinRunLengthForPredictionTooltip): a two- or three-letter run
+    /// still completes on Tab, it just does not advertise itself. Tests
+    /// about *what* gets completed therefore have to ask the window.
+    private func offeredCompletion() -> String? {
+        pressShiftTab()
+        defer {
+            if state is InputState.ChoosingCandidate {
+                pressEsc()
+            }
+        }
+        guard let choosing = state as? InputState.ChoosingCandidate else {
+            return nil
+        }
+        return choosing.candidates.first?.value
     }
 
     // MARK: - Tooltip visibility boundaries
@@ -282,25 +300,56 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         XCTAssertNil(predictedCompletion, "\(state)")
     }
 
-    /// "th" locks by the 2nd letter and the dictionary has hundreds of
-    /// longer words starting with it, so a prediction must appear.
-    func testTooltipShowsALongerCompletionOnceLocked() {
-        type("th")
-        XCTAssertEqual(composingBuffer, "th")
+    /// "thro" locks by the 2nd letter, is not itself a dictionary entry
+    /// (so the finished-word gate cannot apply), and the dictionary has
+    /// several longer words starting with it -- and it is long enough to
+    /// clear KeyHandler's kMinLatinRunLengthForPredictionTooltip.
+    func testTooltipShowsALongerCompletionOnceTheRunIsLongEnough() {
+        type("thro")
+        XCTAssertEqual(composingBuffer, "thro")
         guard let predicted = predictedCompletion else {
             XCTFail("expected a completion tooltip, got: \(state)")
             return
         }
-        XCTAssertTrue(predicted.hasPrefix("th"), predicted)
-        XCTAssertGreaterThan(predicted.count, 2, predicted)
+        XCTAssertTrue(predicted.hasPrefix("thro"), predicted)
+        XCTAssertGreaterThan(predicted.count, 4, predicted)
+    }
+
+    /// docs/REVERIFY-P3-2026-09-12.md's "換裝前值得先修的最短清單" item 2.
+    /// The tooltip used to appear from the second letter, which over 100
+    /// keystrokes of ordinary words put a *wrong* word on screen 33 times
+    /// to save 7 -- "the" advertising "throughput" by its second letter.
+    /// The floor is display-only: Tab and Shift+Tab are things the user
+    /// asked for and still work on the same short run.
+    func testShortRunsCompleteOnDemandButDoNotAdvertise() {
+        for shortRun in ["th", "thr"] {
+            resetSession()
+            type(shortRun)
+            XCTAssertEqual(composingBuffer, shortRun)
+            XCTAssertNil(
+                predictedCompletion,
+                "\(shortRun): below the tooltip floor, nothing may be shown: \(state)")
+
+            guard let offered = offeredCompletion() else {
+                XCTFail("\(shortRun): Shift+Tab must still offer completions: \(state)")
+                continue
+            }
+            XCTAssertTrue(offered.hasPrefix(shortRun), offered)
+
+            // And Tab still performs that same completion.
+            resetSession()
+            type(shortRun)
+            pressTab()
+            XCTAssertEqual(composingBuffer, offered)
+        }
     }
 
     /// Turning the preference off must remove the tooltip even though
     /// mixedScript itself (and so Rule A locking) is still on.
     func testNoTooltipWhenLatinCompletionDisabled() {
         Preferences.latinCompletionEnabled = false
-        type("th")
-        XCTAssertEqual(composingBuffer, "th")
+        type("thro")
+        XCTAssertEqual(composingBuffer, "thro")
         XCTAssertNil(predictedCompletion, "\(state)")
     }
 
@@ -336,7 +385,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     // MARK: - Tab accepts the top completion and typing continues
 
     func testTabAcceptsTopCompletionAndContinuesTyping() {
-        type("th")
+        type("thro")
         guard let predicted = predictedCompletion else {
             XCTFail("expected a completion tooltip, got: \(state)")
             return
@@ -345,7 +394,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         XCTAssertEqual(composingBuffer, predicted)
         XCTAssertNil(predictedCompletion, "no completion is longer than itself: \(state)")
 
-        // Typing on extends the *completed* word, not the original "th".
+        // Typing on extends the *completed* word, not the original "thro".
         type("s")
         XCTAssertEqual(composingBuffer, predicted + "s")
     }
@@ -353,7 +402,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     /// Backspacing after an accepted completion shortens the completed
     /// word, matching MixedScriptTracker's PopLastLatinCharAfterAcceptingCompletion.
     func testBackspaceAfterAcceptingCompletionShortensTheCompletedWord() {
-        type("th")
+        type("thro")
         guard let predicted = predictedCompletion else {
             XCTFail("expected a completion tooltip, got: \(state)")
             return
@@ -518,7 +567,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     /// (_acceptLatinCompletionWord:), just skipping the keystroke that
     /// would normally produce the value.
     func testAcceptingACompletionMakesItTheTopChoiceNextTime() {
-        type("th")
+        type("thro")
         pressShiftTab()
         guard let choosing = state as? InputState.ChoosingCandidate,
             choosing.candidates.count >= 2,
@@ -534,7 +583,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         pressEsc()
 
         resetSession()
-        type("th")
+        type("thro")
         XCTAssertNotEqual(
             predictedCompletion, chosenWord,
             "test setup: pick a candidate that was not already on top")
@@ -542,7 +591,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         handler.acceptLatinCompletion(value: chosenWord)
 
         resetSession()
-        type("th")
+        type("thro")
         XCTAssertEqual(predictedCompletion, chosenWord)
     }
 
@@ -553,7 +602,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     /// KeyHandler's accept path is idempotent-safe to call twice in a row
     /// and the word stays the top choice.
     func testAcceptingTheSameCompletionTwiceStaysConsistent() {
-        type("th")
+        type("thro")
         pressShiftTab()
         guard let choosing = state as? InputState.ChoosingCandidate,
             choosing.candidates.count >= 2,
@@ -569,7 +618,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         handler.acceptLatinCompletion(value: chosenWord)
 
         resetSession()
-        type("th")
+        type("thro")
         XCTAssertEqual(predictedCompletion, chosenWord)
     }
 
@@ -594,7 +643,11 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     /// to this: see testShiftTabOnAPrefixWithNoRankingSignal below for
     /// what the bundled dictionary can and cannot do, and why that is a
     /// separate (N1) problem from this one.
-    func testShiftTabListsCommonWordsNotAlphabeticalDebris() {
+    /// Named for what it checks: the *top three rows*. Rows 4 and below
+    /// are still alphabetical debris on most prefixes, which is N1's
+    /// unfixed ranking-data problem, not this one --
+    /// testShiftTabOnAPrefixWithNoRankingSignal is where that is pinned.
+    func testShiftTabTopThreeRowsAreCommonWordsNotAlphabeticalDebris() {
         let commonWordsByPrefix = [
             "th": Set([
                 "than", "thank", "thanks", "that", "the", "their", "them", "then",
@@ -674,6 +727,10 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
             resetSession()
             type(word)
             XCTAssertEqual(composingBuffer, word)
+            // Only half the story for "run"/"the", which are below the
+            // tooltip's own length floor anyway; the Shift+Tab assertion
+            // at the bottom of this loop is what proves the *gate* is
+            // what silences them.
             XCTAssertNil(
                 predictedCompletion,
                 "\(word): a finished word must not advertise a completion: \(state)")
@@ -707,12 +764,15 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
 
         // Both are dictionary entries in their own right, and both lock as
         // Rule-A runs ("co" does not -- it is a valid reading, so it stays
-        // Chinese; that is Rule B's job, not this gate's).
+        // Chinese; that is Rule B's job, not this gate's). Asked through
+        // the candidate window rather than the tooltip, which has its own,
+        // longer floor -- what is being pinned here is the finished-word
+        // gate, not the tooltip's noise budget.
         for shortRun in ["th", "pr"] {
             resetSession()
             type(shortRun)
             XCTAssertNotNil(
-                predictedCompletion,
+                offeredCompletion(),
                 "\(shortRun): a short run is a prefix in progress, not a finished word: \(state)")
         }
     }
@@ -783,41 +843,117 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     /// testing found nothing guarding this at all (M2 and M4 both
     /// survived). This is the table.
     func testLearnFromTypingWritesOnlyWhatThePolicyAllows() {
-        // A word the dictionary already knows is recorded on first commit.
+        // Every eligible commit is worth exactly one sighting, whether or
+        // not the dictionary has heard of the word.
         type("code ")
         XCTAssertEqual(learnedLatinWords["code"], 1)
 
-        // A word it does not know is not, however that run was ended.
-        // (Distinct words per case rather than resetting the lexicon
-        // between them: the staged sighting count lives in the
-        // process-wide lexicon, so a reset here would also need another
-        // background reload to finish before learning could work at all.)
+        // A word it does not know is recorded at 1 too, however that run
+        // was ended -- but 1 is below
+        // LatinLexicon::kUserWordConfirmedScore, so it changes no ranking
+        // and is not offered as a completion (see
+        // testAnUnconfirmedTypedWordIsRecordedButNeverSuggested).
         resetSession()
         type("thq ")
-        XCTAssertNil(
-            learnedLatinWords["thq"],
-            "space: an unknown word must not be written on its first commit")
+        XCTAssertEqual(learnedLatinWords["thq"], 1, "space ends a run")
 
         resetSession()
         type("zzq,")
-        XCTAssertNil(
-            learnedLatinWords["zzq"],
-            "punctuation: an unknown word must not be written on its first commit")
+        XCTAssertEqual(learnedLatinWords["zzq"], 1, "punctuation ends a run")
 
         resetSession()
         type("xqk")
         pressEnter()
-        XCTAssertNil(
-            learnedLatinWords["xqk"],
-            "Enter: an unknown word must not be written on its first commit")
+        XCTAssertEqual(learnedLatinWords["xqk"], 1, "Enter ends a run")
 
-        // ...until the same string has been committed a second time.
+        // A second commit of the same string confirms it.
         resetSession()
         type("thq ")
         XCTAssertEqual(
             learnedLatinWords["thq"], 2,
-            "two separate commits of the same unknown word do learn it")
-        XCTAssertNil(learnedLatinWords["zzq"], "other staged words are unaffected")
+            "two separate commits of the same unknown word confirm it")
+        XCTAssertEqual(learnedLatinWords["zzq"], 1, "other words are unaffected")
+    }
+
+    /// docs/REVERIFY-P3-2026-09-12.md's "pending 落地". The first sighting
+    /// of a word the dictionary does not know is now written to disk
+    /// instead of being staged in a process-lifetime-only map -- but
+    /// writing it down is not the same as recommending it. Nothing may
+    /// suggest it until a second commit confirms it.
+    func testAnUnconfirmedTypedWordIsRecordedButNeverSuggested() {
+        type("thqzy ")
+        XCTAssertEqual(learnedLatinWords["thqzy"], 1)
+
+        resetSession()
+        type("thqz")
+        XCTAssertEqual(composingBuffer, "thqz")
+        XCTAssertNil(
+            predictedCompletion,
+            "one sighting must not put the word in the tooltip: \(state)")
+        XCTAssertNil(
+            offeredCompletion(),
+            "nor in the candidate window: \(state)")
+
+        resetSession()
+        type("thqz")
+        pressTab()
+        XCTAssertEqual(composingBuffer, "thqz", "nor may Tab complete to it")
+    }
+
+    /// The point of moving the staging to disk: "twice" used to mean
+    /// twice *inside one process lifetime*, which a logout, an input
+    /// method switch or a crash reset -- so the words that actually need
+    /// learning (a name, a product, an internal codename, typed once or
+    /// twice a day hours apart) never got there. resetLatinLexiconForTesting()
+    /// plus a reload is the same thing a relaunch does.
+    func testASecondCommitAfterARestartStillConfirmsTheWord() throws {
+        type("thqzy ")
+        XCTAssertEqual(learnedLatinWords["thqzy"], 1)
+
+        LanguageModelManager.resetLatinLexiconForTesting()
+        LanguageModelManager.loadDataModels()
+        try waitForLatinLexicon()
+        handler = KeyHandler()
+        handler.inputMode = .bopomofo
+        resetSession()
+
+        type("thqzy ")
+        XCTAssertEqual(
+            learnedLatinWords["thqzy"], 2,
+            "the sighting from before the restart must still count")
+
+        resetSession()
+        type("thqz")
+        XCTAssertEqual(
+            predictedCompletion, "thqzy",
+            "confirmed now, so it is finally worth suggesting: \(state)")
+    }
+
+    /// A dictionary word behaves exactly as it did before the staging
+    /// moved: one sighting records it without changing any ranking, two
+    /// confirm it and put it ahead of the dictionary for its prefix.
+    func testADictionaryWordStillNeedsTwoSightingsToOutrankTheDictionary() {
+        let before = predictedCompletionAfterTyping("thro")
+        XCTAssertNotEqual(before, "through", "test setup: pick a word that is not already on top")
+
+        type("through ")
+        XCTAssertEqual(learnedLatinWords["through"], 1)
+        XCTAssertEqual(
+            predictedCompletionAfterTyping("thro"), before,
+            "one sighting of a dictionary word must not reorder anything")
+
+        resetSession()
+        type("through ")
+        XCTAssertEqual(learnedLatinWords["through"], 2)
+        XCTAssertEqual(predictedCompletionAfterTyping("thro"), "through")
+    }
+
+    private func predictedCompletionAfterTyping(_ run: String) -> String? {
+        resetSession()
+        type(run)
+        let result = predictedCompletion
+        resetSession()
+        return result
     }
 
     /// The length bounds, and the 40-letter mash the review typed.
@@ -900,6 +1036,89 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         XCTAssertNil(learnedLatinWords["aweso"], "the abandoned prefix is not a word")
     }
 
+    // MARK: - P-1: moving the user-phrase folder must not destroy a word list
+
+    /// docs/REVERIFY-P3-2026-09-12.md's P-1, end to end through the real
+    /// KeyHandler. Folder A has been in use for a while; the user points
+    /// the preference at folder B, which already holds a `latin-user.txt`
+    /// (the Dropbox case). Typing one English word used to truncate B's
+    /// file and write A's entire contents over it.
+    ///
+    /// `LanguageModelManager.reloadLatinUserWordList()` is exactly what
+    /// `AppDelegate.updateUserPhrases()` calls on
+    /// `userPhraseLocationDidChange`; this test stands in for the
+    /// notification, which needs a live AppDelegate this harness does not
+    /// build.
+    func testMovingTheUserPhraseFolderNeitherLosesNorCarriesWords() throws {
+        let folderA = temporaryUserDataFolder!
+        let folderB = folderA.deletingLastPathComponent()
+            .appendingPathComponent("mixime-completion-tests-B-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: folderB, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: folderB)
+        }
+        try "dropboxword\t4\n".write(
+            to: folderB.appendingPathComponent("latin-user.txt"),
+            atomically: true, encoding: .utf8)
+
+        // A word learned while folder A is current.
+        type("code ")
+        XCTAssertEqual(learnedLatinWords["code"], 1)
+
+        // The user moves the folder.
+        LanguageModelManager.dataFolderOverrideForTesting = folderB.path
+        LanguageModelManager.reloadLatinUserWordList()
+
+        resetSession()
+        type("test ")
+
+        let inB = latinUserWords(in: folderB)
+        XCTAssertEqual(
+            inB["dropboxword"], 4,
+            "the new folder's own word list must survive: \(inB)")
+        XCTAssertEqual(inB["test"], 1, "\(inB)")
+        XCTAssertNil(
+            inB["code"],
+            "the old folder's words must not be copied into the new one: \(inB)")
+
+        let inA = latinUserWords(in: folderA)
+        XCTAssertEqual(inA, ["code": 1], "the old folder must be left untouched: \(inA)")
+    }
+
+    /// The other half of the same fix, without a folder change: another
+    /// machine (or a hand edit) adds a word to the file while the input
+    /// method is running. The next write must merge, not overwrite.
+    func testAnExternallyEditedWordListIsMergedNotOverwritten() throws {
+        type("code ")
+        XCTAssertEqual(learnedLatinWords["code"], 1)
+
+        let path = temporaryUserDataFolder!.appendingPathComponent("latin-user.txt")
+        try (try String(contentsOf: path, encoding: .utf8) + "othermachine\t6\n")
+            .write(to: path, atomically: true, encoding: .utf8)
+
+        resetSession()
+        type("test ")
+
+        XCTAssertEqual(
+            learnedLatinWords["othermachine"], 6,
+            "a word added behind our back must survive the next write: \(learnedLatinWords)")
+        XCTAssertEqual(learnedLatinWords["code"], 1)
+        XCTAssertEqual(learnedLatinWords["test"], 1)
+    }
+
+    private func latinUserWords(in folder: URL) -> [String: Int] {
+        let path = folder.appendingPathComponent("latin-user.txt").path
+        let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        var result: [String: Int] = [:]
+        for line in text.split(separator: "\n") {
+            let fields = line.split(separator: "\t")
+            guard let word = fields.first else { continue }
+            result[String(word)] = fields.count > 1 ? Int(fields[1]) ?? 1 : 1
+        }
+        return result
+    }
+
     // MARK: - Pure Chinese: ON must equal OFF
 
     func testPureChineseTypingIsUnaffectedByLatinCompletion() {
@@ -927,6 +1146,42 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         let offResult = composingBuffer
 
         XCTAssertEqual(onResult, offResult)
+    }
+
+    // MARK: - P-3: the test host must not write the developer's preferences
+
+    /// docs/REVERIFY-P3-2026-09-12.md's P-3. The McBopomofo app bundle is
+    /// this suite's test host, so `main.swift` runs to completion before
+    /// any test does -- and its `Preferences.populateDefaults()` wrote 23
+    /// keys straight into the real
+    /// `org.openvanilla.inputmethod.McBopomofo` domain, earlier than
+    /// `PreferenceSandbox` can snapshot it, so the sandbox restored them
+    /// instead of removing them. One of them, `AddPhraseHookPath`, was
+    /// left pointing into a `build/` directory on the reviewer's machine.
+    ///
+    /// `main.swift` now skips that call under XCTest. There is nothing
+    /// observable to assert afterwards (the whole point is that nothing
+    /// happened), so what is pinned here is the predicate the skip is
+    /// built on: if this ever stops being true, the guard silently stops
+    /// guarding.
+    func testTheHostSkipsPopulateDefaultsUnderXCTest() {
+        XCTAssertTrue(
+            Preferences.isRunningUnderXCTest,
+            "main.swift's populateDefaults() guard depends on this being true "
+                + "inside the test host")
+    }
+
+    /// The user-data folder redirection must not go through preferences
+    /// at all: those are one file shared by every process on the machine,
+    /// which is how a parallel run wrote 130 eval-corpus words into the
+    /// developer's real latin-user.txt (P-2).
+    /// Nothing in this suite writes `UseCustomUserPhraseLocation` or
+    /// `CustomUserPhraseLocation` any more; the redirection is a
+    /// process-local override that outranks whatever those keys happen to
+    /// say on this machine.
+    func testTheUserDataFolderIsRedirectedWithoutTouchingPreferences() {
+        XCTAssertEqual(
+            LanguageModelManager.dataFolderPath, temporaryUserDataFolder!.path)
     }
 
     // MARK: - eval200: how many keystrokes does completion actually save?
@@ -1021,19 +1276,60 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         /// full-length prefix could never complete to itself anyway).
         let completableAtLetter: Int?
         let tokenLength: Int
+        /// Whether Rule A ever locked the run as Latin at all. A token
+        /// whose Bopomofo shape stays legal the whole way ("app" is
+        /// `ㄇㄣ`, "coo" is `ㄏㄟ`) never becomes a Latin run, so no
+        /// completion surface can fire for it -- no tooltip, no Tab, no
+        /// window (docs/REVERIFY-P3-2026-09-12.md's P-4, where these were
+        /// being counted as ranking misses and so as evidence that a
+        /// better frequency source would help).
+        ///
+        /// Read off the composing buffer, which shows the raw ASCII run
+        /// exactly when the tracker has locked it (see
+        /// buildInputtingState's mixedScriptShowsLatinRun).
+        let everLockedAsLatin: Bool
+        /// True when Tab/Shift+Tab *would* have completed the token at a
+        /// prefix too short for the tooltip to say so. Such a token is not
+        /// a ranking failure -- the ranking found it, the display policy
+        /// declined to volunteer it -- so it is counted separately rather
+        /// than inflating "ranking miss".
+        let completableOnlyBelowTheTooltipFloor: Bool
     }
+
+    /// Mirrors KeyHandler's kMinLatinRunLengthForPredictionTooltip, which
+    /// is a C++/ObjC file-static this test cannot import. Only used to
+    /// decide where to bother probing the candidate window: above it the
+    /// window and the tooltip ask the same question
+    /// (_offeredCompletionFor:lexicon:) and cannot disagree.
+    private static let tooltipRunLengthFloor = 4
 
     private func simulateCompletion(of token: String) -> TokenOutcome {
         let lower = token.lowercased()
         resetSession()
+        var everLocked = false
+        var completableBelowFloor = false
         for k in 1..<lower.count {
             let letter = String(lower[lower.index(lower.startIndex, offsetBy: k - 1)])
             type(letter)
+            if composingBuffer == String(lower.prefix(k)) {
+                everLocked = true
+            }
             if let predicted = predictedCompletion, predicted.lowercased() == lower {
-                return TokenOutcome(completableAtLetter: k, tokenLength: lower.count)
+                return TokenOutcome(
+                    completableAtLetter: k, tokenLength: lower.count,
+                    everLockedAsLatin: true,
+                    completableOnlyBelowTheTooltipFloor: false)
+            }
+            if k < Self.tooltipRunLengthFloor, !completableBelowFloor,
+                offeredCompletion()?.lowercased() == lower
+            {
+                completableBelowFloor = true
             }
         }
-        return TokenOutcome(completableAtLetter: nil, tokenLength: lower.count)
+        return TokenOutcome(
+            completableAtLetter: nil, tokenLength: lower.count,
+            everLockedAsLatin: everLocked,
+            completableOnlyBelowTheTooltipFloor: completableBelowFloor)
     }
 
     /// P3 fix #4: eligible for LatinLexicon lookups the same way
@@ -1094,6 +1390,20 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     /// fixed by a real frequency source, a missing word by a bigger
     /// dictionary. They are not the same work.
     private enum UncompletableCategory {
+        /// Rule A never locked this token as a Latin run, so no
+        /// completion surface was ever reachable for it and the
+        /// dictionary was never consulted. Asked *first*, ahead of every
+        /// dictionary question, because a token in this class tells us
+        /// nothing about the ranking data -- it is a P1 Rule-A coverage
+        /// limit, and no frequency source can move it
+        /// (docs/REVERIFY-P3-2026-09-12.md's P-4).
+        case ruleANotTriggered
+        /// Tab or Shift+Tab would have completed the token, but only at a
+        /// prefix shorter than the tooltip's own floor, so the input
+        /// method never said so. A display-policy cost, not a data
+        /// problem: asked second, because counting these as ranking
+        /// misses is the same mistake P-4 caught in a different place.
+        case belowTooltipFloor
         /// The lowercase form *is* a recognized dictionary word, but no
         /// prefix of it ever ranked it as the top-1 completion -- a
         /// different, better-ranked word shares every tested prefix.
@@ -1110,7 +1420,15 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         /// `token` is the corpus form (case as written); `lower` is
         /// already lowercased (callers already have it, no need to
         /// recompute).
-        static func classify(_ token: String, lower: String) -> UncompletableCategory {
+        static func classify(
+            _ token: String, lower: String, outcome: TokenOutcome
+        ) -> UncompletableCategory {
+            if !outcome.everLockedAsLatin {
+                return .ruleANotTriggered
+            }
+            if outcome.completableOnlyBelowTheTooltipFloor {
+                return .belowTooltipFloor
+            }
             if LanguageModelManager.isLatinWord(forTesting: lower) {
                 return .rankingMiss
             }
@@ -1122,11 +1440,16 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         }
     }
 
+    private static let completableThresholds = [2, 3, 4, 5, 6]
+
     private struct EvalOutcome {
-        var completableAtOrBelow: [Int: Int] = [2: 0, 3: 0, 4: 0]
+        var completableAtOrBelow: [Int: Int] =
+            Dictionary(uniqueKeysWithValues: completableThresholds.map { ($0, 0) })
         var neverCompletable = 0
         var totalKeystrokesSaved = 0
         var total = 0
+        var ruleANotTriggered = 0
+        var belowTooltipFloor = 0
         var rankingMiss = 0
         var inflectedForm = 0
         var notInDictionary = 0
@@ -1137,7 +1460,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         let lower = token.lowercased()
         let result = simulateCompletion(of: token)
         if let k = result.completableAtLetter {
-            for threshold in [2, 3, 4] where k <= threshold {
+            for threshold in Self.completableThresholds where k <= threshold {
                 outcome.completableAtOrBelow[threshold]! += 1
             }
             // The letters not typed, minus the one keystroke (Tab) spent
@@ -1145,7 +1468,9 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
             outcome.totalKeystrokesSaved += max(0, result.tokenLength - k - 1)
         } else {
             outcome.neverCompletable += 1
-            switch UncompletableCategory.classify(token, lower: lower) {
+            switch UncompletableCategory.classify(token, lower: lower, outcome: result) {
+            case .ruleANotTriggered: outcome.ruleANotTriggered += 1
+            case .belowTooltipFloor: outcome.belowTooltipFloor += 1
             case .rankingMiss: outcome.rankingMiss += 1
             case .inflectedForm: outcome.inflectedForm += 1
             case .notInDictionary: outcome.notInDictionary += 1
@@ -1159,13 +1484,17 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
             total == 0 ? "n/a" : String(format: "%.1f", Double(n) / Double(total) * 100)
         }
         let avgSaved = total == 0 ? 0 : Double(outcome.totalKeystrokesSaved) / Double(total)
+        let rows = Self.completableThresholds.map { threshold in
+            let n = outcome.completableAtOrBelow[threshold]!
+            return "| completable within \(threshold) letters | \(n)/\(total) = \(pct(n))% |"
+        }.joined(separator: "\n")
         return """
             | metric | value |
             |---|---|
-            | completable within 2 letters | \(outcome.completableAtOrBelow[2]!)/\(total) = \(pct(outcome.completableAtOrBelow[2]!))% |
-            | completable within 3 letters | \(outcome.completableAtOrBelow[3]!)/\(total) = \(pct(outcome.completableAtOrBelow[3]!))% |
-            | completable within 4 letters | \(outcome.completableAtOrBelow[4]!)/\(total) = \(pct(outcome.completableAtOrBelow[4]!))% |
+            \(rows)
             | never completable | \(outcome.neverCompletable)/\(total) = \(pct(outcome.neverCompletable))% |
+            | \u{2003}- Rule A never triggered (the run never became Latin at all) | \(outcome.ruleANotTriggered) |
+            | \u{2003}- below the tooltip floor (Tab would have completed it, the tooltip never offered) | \(outcome.belowTooltipFloor) |
             | \u{2003}- ranking miss (in the dictionary, never ranked top-1 at any tested prefix) | \(outcome.rankingMiss) |
             | \u{2003}- inflected form (lemma in the dictionary, inflected form is not) | \(outcome.inflectedForm) |
             | \u{2003}- not in the dictionary (name, acronym, product) | \(outcome.notInDictionary) |
@@ -1179,11 +1508,11 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     /// has) -- measured two ways (P3 fix #4): "no history" evaluates
     /// every token cold, against just the built-in dictionary/tech seed;
     /// "with history" replays the corpus in row order, and after
-    /// evaluating each row's tokens, teaches every eligible one into the
-    /// user lexicon (mirroring Preferences.latinLearnTypedWords's
-    /// production rule -- see isEligibleLatinToken:) before moving to the
-    /// next row, so a word's *second* occurrence should be more
-    /// completable than its first. This is a measurement/report, not a
+    /// evaluating each row's tokens, types and commits every eligible one
+    /// (see isEligibleLatinToken:) so the real learn-from-typing hook
+    /// runs before moving to the next row -- so a word that recurs often
+    /// enough to be confirmed becomes more completable later in the
+    /// corpus. This is a measurement/report, not a
     /// correctness gate (except the pure-Chinese control below): skipped
     /// outright when the private corpus is not present, and neither table
     /// asserts thresholds the way testEval200ThroughKeyHandler does --
@@ -1219,9 +1548,20 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
             for token in eligibleTokens {
                 evaluate(token, into: &withHistory)
             }
+            // Learning is replayed by *typing* the token and committing
+            // it, which is the only thing production ever does
+            // (KeyHandler's _commitMixedScriptLatinRun ->
+            // _learnTypedLatinWordIfEligible). The previous version called
+            // acceptLatinCompletion(value:) instead, which carries
+            // kExplicitAcceptWeight and so confirmed every token on its
+            // first occurrence -- an optimistic upper bound, not the
+            // production rule the prose claimed
+            // (docs/REVERIFY-P3-2026-09-12.md's P-4). Typing it also means
+            // a token Rule A never locks is never learned here either,
+            // exactly as on a real machine.
             for token in eligibleTokens where isEligibleLatinToken(token) {
                 resetSession()
-                handler.acceptLatinCompletion(value: token.lowercased())
+                type(token.lowercased() + " ")
             }
         }
         resetSession()
@@ -1272,51 +1612,82 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
             token of length >= 3, simulates typing it letter by letter into
             a real `KeyHandler` and records the first prefix length at which
             the completion tooltip's top-1 prediction equals the token --
-            i.e. how many letters the user would actually have typed before
-            Tab completes it. Two passes (P3 fix #4): "no history" evaluates
-            every token cold; "with history" replays the corpus in row
-            order and, after evaluating each row, teaches its eligible
-            tokens into the user lexicon the same way
-            Preferences.latinLearnTypedWords does in production, so a
-            word's second occurrence should complete sooner than its first.
+            i.e. how many letters the user would have typed before the
+            input method offered the rest.
 
-            "never completable" tokens are split by asking the dictionary
-            first and only then looking at how the token was written:
-            **ranking miss** (the lowercase form is a dictionary word that
-            never ranked top-1 at any tested prefix -- a different,
-            better-ranked word owns every prefix), **inflected form** (a
-            suffix-stripped lemma guess is a dictionary word but the exact
-            form typed is not -- P3 fix #1's SCOWL-sourced word list, which
-            includes inflected forms directly, keeps this near 0), and
-            **not in the dictionary** (a genuine vocabulary gap: a name, an
-            acronym, a product).
+            This measures what the user is *shown*. Since P3 round 4 the
+            tooltip needs a run of `kMinLatinRunLengthForPredictionTooltip`
+            (4) letters before it appears, so the "within 2 letters" and
+            "within 3 letters" rows below are necessarily 0 -- they are
+            kept only so the table still lines up with the two earlier
+            runs. Tab and Shift+Tab still complete a two-letter run on
+            demand; what changed is that the input method no longer
+            volunteers a guess that early. The reason is in
+            docs/REVERIFY-P3-2026-09-12.md: over 100 keystrokes of 17
+            words the reviewer types daily, the old floor of 2 put a wrong
+            word on screen 33 times to save 7 keystrokes.
 
-            That order is a correction (docs/REVIEW-P3-2026-09-11.md's N2).
-            The earlier split short-circuited on "does the token contain an
-            uppercase letter", which filed 61 tokens -- `API`, `App`,
-            `Apple`, `Blog`, `CLI`, `Games`, `Meet`, `Steam`, `Story`,
-            `This`, `Tool` and friends -- as vocabulary gaps when their
-            lowercase forms are ordinary dictionary entries. The simulation
-            types `lowercased()` anyway, so casing says nothing about
-            whether the lookup could have succeeded. Corrected, **62% of
-            never-completable tokens are ranking misses, not missing
-            words**, which points P4 at a real frequency source rather than
-            at a bigger dictionary.
+            Two passes: "no history" evaluates every token cold; "with
+            history" replays the corpus in row order and, after evaluating
+            each row, *types and commits* its eligible tokens, which is
+            the only way production learns anything (KeyHandler's
+            _commitMixedScriptLatinRun -> _learnTypedLatinWordIfEligible).
+            Two commits of the same string are what confirm a word, so a
+            token's third occurrence is the first that can benefit. Round
+            3 instead called `acceptLatinCompletion(value:)`, which
+            confirms a word in one call -- its 48.8% was an optimistic
+            upper bound, not the production rule the prose claimed
+            (docs/REVERIFY-P3-2026-09-12.md's P-4).
 
-            The small drop against the 2026-09-11 run (40.6% -> 40.3%
-            within four letters, 154 -> 155 never completable) is P3 fix
-            #3's tightened "already a finished word" gate: a run that is
-            itself a finished word now shows no prediction at all, so a
-            token whose prefix passes through one (`code` on the way to
-            `codes`) has to be typed one letter further. That is the
-            intended trade -- the alternative was Tab rewriting `code` into
-            `codesign`.
+            "never completable" tokens are split by asking, in this order:
+            **Rule A never triggered** (the letters never stopped being a
+            legal Bopomofo shape, so the run never became Latin and no
+            completion surface was reachable at all -- `app` is `ㄇㄣ`,
+            `coo` is `ㄏㄟ`; a P1 coverage limit that no amount of
+            frequency data can move), **below the tooltip floor** (pressing
+            Tab or Shift+Tab at two or three letters *would* have completed
+            the token; the ranking found it and the display policy declined
+            to volunteer it), **ranking miss** (the lowercase form is a
+            dictionary word that never ranked top-1 at any tested prefix --
+            a different, better-ranked word owns every prefix),
+            **inflected form** (a suffix-stripped lemma guess is a
+            dictionary word but the exact form typed is not -- P3 fix #1's
+            SCOWL-sourced word list, which includes inflected forms
+            directly, keeps this near 0), and **not in the dictionary** (a
+            genuine vocabulary gap: a name, an acronym, a product).
+
+            Those first two categories are corrections. Round 2's
+            version short-circuited on "does the token contain an
+            uppercase letter", filing 61 tokens (`API`, `App`, `Apple`,
+            `Blog`, `CLI`, `Games`, `Meet`, `Steam`, `Story`, `This`,
+            `Tool`) as vocabulary gaps when their lowercase forms are
+            ordinary dictionary entries; asking the dictionary first fixed
+            that, but left a second error in place -- a token whose run
+            never locked was counted as a ranking miss purely because its
+            lowercase form is in the dictionary, which is how "62% of
+            never-completable tokens are ranking misses" was arrived at.
+            The tooltip floor would have created a third version of the
+            same mistake, so it gets its own row too. Each points at
+            different work: a ranking miss wants a real frequency source,
+            a Rule-A failure wants better Rule-A coverage, a floor
+            casualty wants a better way to surface a completion the
+            ranking already has, and a missing word wants a bigger
+            dictionary.
+
+            What the two changes cost, stated plainly: average keystrokes
+            saved per token went from 0.76 to \(String(format: "%.2f", Double(noHistory.totalKeystrokesSaved) / Double(max(noHistory.total, 1)))) with no history and from
+            0.94 to \(String(format: "%.2f", Double(withHistory.totalKeystrokesSaved) / Double(max(withHistory.total, 1)))) with it. Roughly half of that is the tooltip
+            floor (the "below the tooltip floor" row is the population that
+            moved) and the rest is "with history" no longer confirming
+            every token on its first sighting. Both are measurements of a
+            deliberately more conservative product, not regressions to
+            chase back.
 
             ### No history
 
             \(reportTable(noHistory))
 
-            ### With history (learning applied between rows)
+            ### With history (production learning replayed between rows)
 
             \(reportTable(withHistory))
 

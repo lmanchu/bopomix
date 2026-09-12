@@ -95,5 +95,13 @@ guard let bundleID = Bundle.main.bundleIdentifier, let server = IMKServer(name: 
     exit(-1)
 }
 
-Preferences.populateDefaults()
+// Writing every default back into the real preferences domain is what the
+// *input method* wants on launch; it is the last thing an XCTest run
+// wants, since this bundle is also the test host and this line runs
+// before any test (and so before PreferenceSandbox's snapshot) --
+// see Preferences.isRunningUnderXCTest and
+// docs/REVERIFY-P3-2026-09-12.md's P-3.
+if !Preferences.isRunningUnderXCTest {
+    Preferences.populateDefaults()
+}
 NSApp.run()

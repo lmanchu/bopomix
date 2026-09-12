@@ -250,17 +250,24 @@ TEST(LatinLexiconTest, RememberWordCountsRepeatedAcceptances) {
 // a tab-counted line is the P3 format. The parsed count actually affects
 // ordering (not just membership), verified via complete().
 TEST(LatinLexiconTest, LoadUserWordListAcceptsBothPreAndPostP3Formats) {
+  // Both words are in the dictionary too, so the *only* thing that can
+  // order them is the parsed user count (an unconfirmed user word the
+  // dictionary does not know is not offered at all -- see
+  // CompleteOmitsAnUnconfirmedUnknownUserWord).
+  TempFile builtin("worklegacy\t0\nworknew\t1\n");
   TempFile file("worklegacy\nworknew\t7\n");
   LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(builtin.path()));
   ASSERT_TRUE(lexicon.loadUserWordList(file.path()));
 
   EXPECT_TRUE(lexicon.isUserWord("worklegacy"));
   EXPECT_TRUE(lexicon.isUserWord("worknew"));
   EXPECT_EQ(lexicon.userWordCount(), 2u);
 
-  // "worklegacy" (parsed count 1) must complete after "worknew" (parsed
-  // count 7), proving the tab-count round-tripped through the load rather
-  // than every line being treated as count 1.
+  // "worknew" (parsed count 7, confirmed) outranks the whole dictionary;
+  // "worklegacy" (parsed count 1) does not, and falls back to its builtin
+  // rank -- which is the *better* of the two, so this ordering is only
+  // possible if the tab-count really round-tripped through the load.
   std::vector<std::string> completions = lexicon.complete("work", 10);
   ASSERT_EQ(completions.size(), 2u);
   EXPECT_EQ(completions[0], "worknew");
@@ -298,6 +305,130 @@ TEST(LatinLexiconTest, RememberWordRewritesExistingCountInPlace) {
   EXPECT_EQ(agentLines, 1);
 
   std::filesystem::remove(userPath);
+}
+
+// docs/REVERIFY-P3-2026-09-12.md's P-1, half one: the file being written
+// is not necessarily the file this process loaded. Another machine adding
+// words over Dropbox, or the user pointing the folder somewhere that
+// already has a list, used to be answered by truncating the target and
+// dumping this process's memory over it.
+TEST(LatinLexiconTest, PersistMergesWithWhateverIsOnDiskInsteadOfOverwriting) {
+  std::filesystem::path userPath =
+      std::filesystem::temp_directory_path() /
+      "mixime_latin_lexicon_test_persist_merge.txt";
+  std::filesystem::remove(userPath);
+
+  LatinLexicon lexicon;
+  lexicon.setUserWordListPath(userPath.string());
+  lexicon.rememberWord("localword", LatinLexicon::kExplicitAcceptWeight);
+
+  // Somebody else (another machine, a hand edit) rewrites the file while
+  // this process is running: one word it has never heard of, and a higher
+  // count for one it has.
+  {
+    std::ofstream out(userPath, std::ios::trunc);
+    out << "remoteword\t9\n"
+        << "localword\t5\n";
+  }
+
+  ASSERT_TRUE(lexicon.rememberWord("localword"));
+
+  LatinLexicon reloaded;
+  ASSERT_TRUE(reloaded.loadUserWordList(userPath.string()));
+  EXPECT_TRUE(reloaded.isUserWord("remoteword"))
+      << "a word only the file knew about must survive the write";
+  EXPECT_TRUE(reloaded.isUserWord("localword"));
+  EXPECT_EQ(reloaded.userWordCount(), 2u);
+
+  // Per word the larger count wins: the file said 5, memory said 3.
+  std::ifstream in(userPath);
+  std::string line;
+  bool sawLocalAtFive = false;
+  while (std::getline(in, line)) {
+    if (line.rfind("localword\t", 0) == 0) {
+      EXPECT_EQ(line, "localword\t5");
+      sawLocalAtFive = true;
+    }
+  }
+  EXPECT_TRUE(sawLocalAtFive);
+
+  std::filesystem::remove(userPath);
+}
+
+// The same fix seen through the gesture that caused it: the user moves
+// the user-phrase folder to one that already holds a word list.
+TEST(LatinLexiconTest, WritingAfterAFolderChangeDoesNotClobberTheNewFolder) {
+  std::filesystem::path folderA =
+      std::filesystem::temp_directory_path() / "mixime_lexicon_folder_a";
+  std::filesystem::path folderB =
+      std::filesystem::temp_directory_path() / "mixime_lexicon_folder_b";
+  std::filesystem::remove_all(folderA);
+  std::filesystem::remove_all(folderB);
+  std::filesystem::create_directories(folderA);
+  std::filesystem::create_directories(folderB);
+  std::filesystem::path pathA = folderA / "latin-user.txt";
+  std::filesystem::path pathB = folderB / "latin-user.txt";
+  {
+    std::ofstream out(pathB);
+    out << "dropboxword\t4\n";
+  }
+
+  LatinLexicon lexicon;
+  lexicon.setUserWordListPath(pathA.string());
+  lexicon.rememberWord("folderaword", LatinLexicon::kExplicitAcceptWeight);
+
+  // Folder changed. reloadUserWordList() is what AppDelegate's
+  // updateUserPhrases() now triggers; the old folder's words leave memory
+  // and the new folder's arrive.
+  lexicon.reloadUserWordList(pathB.string());
+  EXPECT_FALSE(lexicon.isUserWord("folderaword"))
+      << "the old folder's words must not follow the user to the new one";
+  EXPECT_TRUE(lexicon.isUserWord("dropboxword"));
+
+  ASSERT_TRUE(lexicon.rememberWord("newfolderword",
+                                   LatinLexicon::kExplicitAcceptWeight));
+
+  LatinLexicon inB;
+  ASSERT_TRUE(inB.loadUserWordList(pathB.string()));
+  EXPECT_TRUE(inB.isUserWord("dropboxword")) << "B's own list must survive";
+  EXPECT_TRUE(inB.isUserWord("newfolderword"));
+  EXPECT_FALSE(inB.isUserWord("folderaword"));
+  EXPECT_EQ(inB.userWordCount(), 2u);
+
+  LatinLexicon inA;
+  ASSERT_TRUE(inA.loadUserWordList(pathA.string()));
+  EXPECT_TRUE(inA.isUserWord("folderaword"));
+  EXPECT_EQ(inA.userWordCount(), 1u) << "the old folder must not be touched";
+
+  std::filesystem::remove_all(folderA);
+  std::filesystem::remove_all(folderB);
+}
+
+// reloadUserWordList() rebuilds sortedWords_, which holds raw pointers
+// into the very map it clears. Checking the binary searches afterwards is
+// how a dangling pointer would show up as something other than a crash.
+TEST(LatinLexiconTest, ReloadUserWordListKeepsTheSortedIndexConsistent) {
+  TempFile builtin("thing\t0\nthink\t1\n");
+  TempFile first("aardvarkone\t3\nthink\t3\n");
+  TempFile second("zebratwo\t3\n");
+  LatinLexicon lexicon;
+  ASSERT_TRUE(lexicon.loadBuiltinWordList(builtin.path()));
+  ASSERT_TRUE(lexicon.loadUserWordList(first.path()));
+  ASSERT_EQ(lexicon.complete("thin", 1), std::vector<std::string> { "think" });
+
+  lexicon.reloadUserWordList(second.path());
+
+  EXPECT_FALSE(lexicon.isUserWord("aardvarkone"));
+  EXPECT_FALSE(lexicon.isPrefix("aardvark"));
+  EXPECT_TRUE(lexicon.isUserWord("zebratwo"));
+  EXPECT_TRUE(lexicon.isPrefix("zebra"));
+  // "think" was in both stores; its builtin half must be untouched, and
+  // with the user store's confirmation gone it drops back behind "thing".
+  EXPECT_TRUE(lexicon.isWord("think"));
+  EXPECT_FALSE(lexicon.isUserWord("think"));
+  EXPECT_EQ(lexicon.complete("thin", 1), std::vector<std::string> { "thing" });
+  EXPECT_EQ(lexicon.builtinWordCount(), 2u);
+  EXPECT_EQ(lexicon.userWordCount(), 1u);
 }
 
 // Testing-only reset(), added to fix docs/REVERIFY-P1-2026-09-10.md's R12
@@ -430,20 +561,22 @@ TEST(LatinLexiconTest, CompleteKeepsAnUnconfirmedUserWordBehindTheDictionary) {
 }
 
 // A user word the dictionary has never heard of and that is still
-// unconfirmed (only reachable from a hand-edited or pre-P3 latin-user.txt)
-// sorts *behind* every ranked word rather than ahead of them, which is
-// what an unranked candidate used to do.
-TEST(LatinLexiconTest, CompleteRanksAnUnconfirmedUnknownUserWordLast) {
+// unconfirmed -- one typed sighting staged on disk, a hand-edited line, or
+// a pre-P3 latin-user.txt -- is left out of the suggestions entirely, not
+// merely sorted last. See complete()'s doc.
+TEST(LatinLexiconTest, CompleteOmitsAnUnconfirmedUnknownUserWord) {
   TempFile file("thing\t0\n");
   LatinLexicon lexicon;
   ASSERT_TRUE(lexicon.loadBuiltinWordList(file.path()));
   TempFile userFile("thqrst\t1\n");
   ASSERT_TRUE(lexicon.loadUserWordList(userFile.path()));
 
-  std::vector<std::string> completions = lexicon.complete("th", 10);
-  ASSERT_EQ(completions.size(), 2u);
-  EXPECT_EQ(completions[0], "thing");
-  EXPECT_EQ(completions[1], "thqrst");
+  EXPECT_EQ(lexicon.complete("th", 10), std::vector<std::string> { "thing" });
+  EXPECT_TRUE(lexicon.complete("thq", 10).empty());
+  // It is still a known word for every other purpose -- this is only
+  // about what gets suggested.
+  EXPECT_TRUE(lexicon.isWord("thqrst"));
+  EXPECT_TRUE(lexicon.isPrefix("thqr"));
 }
 
 // docs/REVIEW-P3-2026-09-11.md's B1. The bug only showed up once the
@@ -582,40 +715,33 @@ TEST(LatinLexiconTest, SourceTierPromotesOnlyConfirmedUserWords) {
   EXPECT_EQ(lexicon.sourceTier("thqrst"), LatinLexicon::kUnrankedSourceTier);
 }
 
-// docs/REVIEW-P3-2026-09-11.md's B2: the in-memory staging area that
-// keeps a word the dictionary does not know out of latin-user.txt until
-// it has been typed twice.
-TEST(LatinLexiconTest, PendingTypedWordsAreCountedButNeverStored) {
+// docs/REVIEW-P3-2026-09-11.md's B2, staged on disk instead of in memory
+// (docs/REVERIFY-P3-2026-09-12.md's "pending 落地"): the first sighting of
+// a word the dictionary does not know is written down -- so the evidence
+// survives a relaunch, which the old in-memory staging never did -- but it
+// is not a suggestion until a second sighting confirms it.
+TEST(LatinLexiconTest, AnUnconfirmedUnknownWordIsRecordedButNeverSuggested) {
   TempFile userFile("");
   LatinLexicon lexicon;
   lexicon.setUserWordListPath(userFile.path());
 
-  EXPECT_EQ(lexicon.pendingTypedWordSightings("thqrst"), 0);
-  EXPECT_EQ(lexicon.notePendingTypedWord("thqrst"), 1);
-  EXPECT_EQ(lexicon.pendingTypedWordSightings("thqrst"), 1);
-  EXPECT_EQ(lexicon.notePendingTypedWord("THQRST"), 2) << "case-insensitive";
-
-  // Staging alone changes nothing anybody can observe.
-  EXPECT_FALSE(lexicon.isWord("thqrst"));
-  EXPECT_FALSE(lexicon.isUserWord("thqrst"));
-  EXPECT_TRUE(lexicon.complete("thq", 10).empty());
-  std::ifstream persisted(userFile.path());
-  std::string line;
-  EXPECT_FALSE(std::getline(persisted, line))
-      << "nothing may reach disk before the word is actually learned";
-
-  // Promoting the word spends the staged sightings.
-  lexicon.rememberWord("thqrst", LatinLexicon::kUserWordConfirmedScore);
-  EXPECT_EQ(lexicon.pendingTypedWordSightings("thqrst"), 0);
+  lexicon.rememberWord("thqrst");
   EXPECT_TRUE(lexicon.isUserWord("thqrst"));
-}
+  EXPECT_TRUE(lexicon.complete("thq", 10).empty())
+      << "one sighting records the word, it does not recommend it";
 
-TEST(LatinLexiconTest, ResetClearsPendingTypedWords) {
-  LatinLexicon lexicon;
-  lexicon.notePendingTypedWord("thqrst");
-  lexicon.reset();
-  EXPECT_EQ(lexicon.pendingTypedWordSightings("thqrst"), 0);
-  EXPECT_EQ(lexicon.notePendingTypedWord("thqrst"), 1);
+  // ...and it really is on disk, so a relaunch starts from one sighting
+  // rather than from zero.
+  LatinLexicon reloaded;
+  ASSERT_TRUE(reloaded.loadUserWordList(userFile.path()));
+  EXPECT_TRUE(reloaded.isUserWord("thqrst"));
+  EXPECT_TRUE(reloaded.complete("thq", 10).empty());
+
+  // The second sighting confirms it, and now it is offered.
+  reloaded.setUserWordListPath(userFile.path());
+  EXPECT_TRUE(reloaded.rememberWord("THQRST")) << "case-insensitive";
+  EXPECT_EQ(reloaded.complete("thq", 10),
+            std::vector<std::string> { "thqrst" });
 }
 
 TEST(LatinLexiconTest, RememberWordAddsItsWeight) {

@@ -194,71 +194,110 @@ Produced by `LatinCompletionKeyHandlerTests.testEval200LatinCompletion`
 token of length >= 3, simulates typing it letter by letter into
 a real `KeyHandler` and records the first prefix length at which
 the completion tooltip's top-1 prediction equals the token --
-i.e. how many letters the user would actually have typed before
-Tab completes it. Two passes (P3 fix #4): "no history" evaluates
-every token cold; "with history" replays the corpus in row
-order and, after evaluating each row, teaches its eligible
-tokens into the user lexicon the same way
-Preferences.latinLearnTypedWords does in production, so a
-word's second occurrence should complete sooner than its first.
+i.e. how many letters the user would have typed before the
+input method offered the rest.
 
-"never completable" tokens are split by asking the dictionary
-first and only then looking at how the token was written:
-**ranking miss** (the lowercase form is a dictionary word that
-never ranked top-1 at any tested prefix -- a different,
-better-ranked word owns every prefix), **inflected form** (a
-suffix-stripped lemma guess is a dictionary word but the exact
-form typed is not -- P3 fix #1's SCOWL-sourced word list, which
-includes inflected forms directly, keeps this near 0), and
-**not in the dictionary** (a genuine vocabulary gap: a name, an
-acronym, a product).
+This measures what the user is *shown*. Since P3 round 4 the
+tooltip needs a run of `kMinLatinRunLengthForPredictionTooltip`
+(4) letters before it appears, so the "within 2 letters" and
+"within 3 letters" rows below are necessarily 0 -- they are
+kept only so the table still lines up with the two earlier
+runs. Tab and Shift+Tab still complete a two-letter run on
+demand; what changed is that the input method no longer
+volunteers a guess that early. The reason is in
+docs/REVERIFY-P3-2026-09-12.md: over 100 keystrokes of 17
+words the reviewer types daily, the old floor of 2 put a wrong
+word on screen 33 times to save 7 keystrokes.
 
-That order is a correction (docs/REVIEW-P3-2026-09-11.md's N2).
-The earlier split short-circuited on "does the token contain an
-uppercase letter", which filed 61 tokens -- `API`, `App`,
-`Apple`, `Blog`, `CLI`, `Games`, `Meet`, `Steam`, `Story`,
-`This`, `Tool` and friends -- as vocabulary gaps when their
-lowercase forms are ordinary dictionary entries. The simulation
-types `lowercased()` anyway, so casing says nothing about
-whether the lookup could have succeeded. Corrected, **62% of
-never-completable tokens are ranking misses, not missing
-words**, which points P4 at a real frequency source rather than
-at a bigger dictionary.
+Two passes: "no history" evaluates every token cold; "with
+history" replays the corpus in row order and, after evaluating
+each row, *types and commits* its eligible tokens, which is
+the only way production learns anything (KeyHandler's
+_commitMixedScriptLatinRun -> _learnTypedLatinWordIfEligible).
+Two commits of the same string are what confirm a word, so a
+token's third occurrence is the first that can benefit. Round
+3 instead called `acceptLatinCompletion(value:)`, which
+confirms a word in one call -- its 48.8% was an optimistic
+upper bound, not the production rule the prose claimed
+(docs/REVERIFY-P3-2026-09-12.md's P-4).
 
-The small drop against the 2026-09-11 run (40.6% -> 40.3%
-within four letters, 154 -> 155 never completable) is P3 fix
-#3's tightened "already a finished word" gate: a run that is
-itself a finished word now shows no prediction at all, so a
-token whose prefix passes through one (`code` on the way to
-`codes`) has to be typed one letter further. That is the
-intended trade -- the alternative was Tab rewriting `code` into
-`codesign`.
+"never completable" tokens are split by asking, in this order:
+**Rule A never triggered** (the letters never stopped being a
+legal Bopomofo shape, so the run never became Latin and no
+completion surface was reachable at all -- `app` is `ㄇㄣ`,
+`coo` is `ㄏㄟ`; a P1 coverage limit that no amount of
+frequency data can move), **below the tooltip floor** (pressing
+Tab or Shift+Tab at two or three letters *would* have completed
+the token; the ranking found it and the display policy declined
+to volunteer it), **ranking miss** (the lowercase form is a
+dictionary word that never ranked top-1 at any tested prefix --
+a different, better-ranked word owns every prefix),
+**inflected form** (a suffix-stripped lemma guess is a
+dictionary word but the exact form typed is not -- P3 fix #1's
+SCOWL-sourced word list, which includes inflected forms
+directly, keeps this near 0), and **not in the dictionary** (a
+genuine vocabulary gap: a name, an acronym, a product).
+
+Those first two categories are corrections. Round 2's
+version short-circuited on "does the token contain an
+uppercase letter", filing 61 tokens (`API`, `App`, `Apple`,
+`Blog`, `CLI`, `Games`, `Meet`, `Steam`, `Story`, `This`,
+`Tool`) as vocabulary gaps when their lowercase forms are
+ordinary dictionary entries; asking the dictionary first fixed
+that, but left a second error in place -- a token whose run
+never locked was counted as a ranking miss purely because its
+lowercase form is in the dictionary, which is how "62% of
+never-completable tokens are ranking misses" was arrived at.
+The tooltip floor would have created a third version of the
+same mistake, so it gets its own row too. Each points at
+different work: a ranking miss wants a real frequency source,
+a Rule-A failure wants better Rule-A coverage, a floor
+casualty wants a better way to surface a completion the
+ranking already has, and a missing word wants a bigger
+dictionary.
+
+What the two changes cost, stated plainly: average keystrokes
+saved per token went from 0.76 to 0.39 with no history and from
+0.94 to 0.46 with it. Roughly half of that is the tooltip
+floor (the "below the tooltip floor" row is the population that
+moved) and the rest is "with history" no longer confirming
+every token on its first sighting. Both are measurements of a
+deliberately more conservative product, not regressions to
+chase back.
 
 ### No history
 
 | metric | value |
 |---|---|
-| completable within 2 letters | 53/330 = 16.1% |
-| completable within 3 letters | 82/330 = 24.8% |
-| completable within 4 letters | 133/330 = 40.3% |
-| never completable | 155/330 = 47.0% |
-|  - ranking miss (in the dictionary, never ranked top-1 at any tested prefix) | 96 |
+| completable within 2 letters | 0/330 = 0.0% |
+| completable within 3 letters | 0/330 = 0.0% |
+| completable within 4 letters | 76/330 = 23.0% |
+| completable within 5 letters | 123/330 = 37.3% |
+| completable within 6 letters | 134/330 = 40.6% |
+| never completable | 187/330 = 56.7% |
+|  - Rule A never triggered (the run never became Latin at all) | 18 |
+|  - below the tooltip floor (Tab would have completed it, the tooltip never offered) | 32 |
+|  - ranking miss (in the dictionary, never ranked top-1 at any tested prefix) | 81 |
 |  - inflected form (lemma in the dictionary, inflected form is not) | 1 |
-|  - not in the dictionary (name, acronym, product) | 58 |
-| average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | 0.76 |
+|  - not in the dictionary (name, acronym, product) | 55 |
+| average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | 0.39 |
 
-### With history (learning applied between rows)
+### With history (production learning replayed between rows)
 
 | metric | value |
 |---|---|
-| completable within 2 letters | 60/330 = 18.2% |
-| completable within 3 letters | 105/330 = 31.8% |
-| completable within 4 letters | 161/330 = 48.8% |
-| never completable | 135/330 = 40.9% |
-|  - ranking miss (in the dictionary, never ranked top-1 at any tested prefix) | 83 |
+| completable within 2 letters | 0/330 = 0.0% |
+| completable within 3 letters | 0/330 = 0.0% |
+| completable within 4 letters | 95/330 = 28.8% |
+| completable within 5 letters | 127/330 = 38.5% |
+| completable within 6 letters | 138/330 = 41.8% |
+| never completable | 184/330 = 55.8% |
+|  - Rule A never triggered (the run never became Latin at all) | 18 |
+|  - below the tooltip floor (Tab would have completed it, the tooltip never offered) | 35 |
+|  - ranking miss (in the dictionary, never ranked top-1 at any tested prefix) | 82 |
 |  - inflected form (lemma in the dictionary, inflected form is not) | 1 |
-|  - not in the dictionary (name, acronym, product) | 51 |
-| average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | 0.94 |
+|  - not in the dictionary (name, acronym, product) | 48 |
+| average keystrokes saved per token (letters skipped minus the Tab press, 0 for non-completable) | 0.46 |
 
 ### Pure-Chinese control: ON vs OFF, character by character
 

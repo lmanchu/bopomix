@@ -175,6 +175,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
         LanguageModelManager.loadUserPhrases(
             enableForPlainBopomofo: Preferences.enableUserPhrasesInPlainBopomofo)
         LanguageModelManager.loadUserPhraseReplacement()
+        // P1 zh/en mixed typing: latin-user.txt lives in the same folder
+        // and has to follow it too. Without this the Latin lexicon kept
+        // the *old* folder's words in memory while writes went to the new
+        // folder's file (docs/REVERIFY-P3-2026-09-12.md's P-1).
+        LanguageModelManager.reloadLatinUserWordList()
 
         fsStreamHelper?.delegate = nil
         fsStreamHelper?.stop()

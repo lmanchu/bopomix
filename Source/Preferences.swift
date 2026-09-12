@@ -256,6 +256,24 @@ class Preferences: NSObject {
         ]
     }
 
+    /// True when this process is an XCTest run rather than the input
+    /// method itself.
+    ///
+    /// The McBopomofo app bundle *is* the XCTest host, so `main.swift`
+    /// runs in full before a single test does -- including
+    /// `populateDefaults()`, which unconditionally wrote 23 keys into the
+    /// real `org.openvanilla.inputmethod.McBopomofo` domain. Those writes
+    /// happen before `PreferenceSandbox` can take its snapshot, so they
+    /// are restored rather than removed, and one of them (a build-tree
+    /// `AddPhraseHookPath`) outlived the build directory it pointed at
+    /// (docs/REVERIFY-P3-2026-09-12.md's P-3).
+    ///
+    /// `XCTestConfigurationFilePath` is set by the test runner in the
+    /// host's environment and by nothing else.
+    @objc static var isRunningUnderXCTest: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     @objc static func populateDefaults() {
         Preferences.keyboardLayout = Preferences.keyboardLayout
         Preferences.basisKeyboardLayout = Preferences.basisKeyboardLayout
