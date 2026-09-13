@@ -24,15 +24,7 @@ github	12
 notion	13
 zoom	14
 xcode	15
-irisgo	16
 openrouter	17
-tachikoma	18
-hermes	19
-gloria	20
-apollo	21
-argus	22
-wells	23
-magi	24
 computex	25
 oem	26
 dau	27

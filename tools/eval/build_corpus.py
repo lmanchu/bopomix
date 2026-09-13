@@ -129,8 +129,11 @@ def segment(norm: str) -> list[dict]:
 # Synthetic sentence generation (used to pad up to --target)
 # ---------------------------------------------------------------------------
 
+# Swap the product/company names here for the proper nouns that actually
+# recur in your own text -- the synthetic padding is only useful if it
+# looks like the English you really type.
 EN_TOKENS = [
-    "Mac", "Slack", "PR", "API", "IrisGo", "OpenRouter", "GitHub", "Notion",
+    "Mac", "Slack", "PR", "API", "Figma", "OpenRouter", "GitHub", "Notion",
     "Zoom", "Xcode", "demo", "bug", "repo", "commit", "deploy", "cache",
     "token", "prompt", "agent", "model", "build", "merge", "review",
     "sprint", "CLI", "CI", "UI", "UX", "PM", "OKR",
