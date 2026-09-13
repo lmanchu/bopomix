@@ -26,3 +26,6 @@ build-engine
 # See tools/eval/README.md.
 *.private.*
 eval-corpus/
+# release tooling output (tools/release/build-release.sh)
+build-release/
+dist/
