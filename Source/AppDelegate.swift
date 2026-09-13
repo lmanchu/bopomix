@@ -193,14 +193,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
         LanguageModelManager.setupDataModelValueConverter()
         updateUserPhrases()
 
-        if UserDefaults.standard.object(forKey: kCheckUpdateAutomatically) == nil {
-            UserDefaults.standard.set(true, forKey: kCheckUpdateAutomatically)
-            UserDefaults.standard.synchronize()
-        }
+        // Backfilling defaults is what the *input method* wants on
+        // launch; it is the last thing an XCTest run wants, since this
+        // bundle is also the test host and this runs before any test
+        // (and so before PreferenceSandbox's snapshot) --
+        // see Preferences.isRunningUnderXCTest and main.swift's
+        // populateDefaults() gate.
+        if !Preferences.isRunningUnderXCTest {
+            if UserDefaults.standard.object(forKey: kCheckUpdateAutomatically) == nil {
+                UserDefaults.standard.set(true, forKey: kCheckUpdateAutomatically)
+                UserDefaults.standard.synchronize()
+            }
 
-        if UserDefaults.standard.object(forKey: kBeepUponInputErrorKey) == nil {
-            UserDefaults.standard.set(true, forKey: kBeepUponInputErrorKey)
-            UserDefaults.standard.synchronize()
+            if UserDefaults.standard.object(forKey: kBeepUponInputErrorKey) == nil {
+                UserDefaults.standard.set(true, forKey: kBeepUponInputErrorKey)
+                UserDefaults.standard.synchronize()
+            }
         }
 
         NotificationCenter.default.addObserver(
@@ -239,6 +247,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
 
         // time for update?
         if !forced {
+            // The automatic check writes kNextUpdateCheckDateKey below.
+            // This bundle is also the XCTest host, so the launch-time
+            // call lands that write in the real domain before any test
+            // runs (and so before PreferenceSandbox's snapshot) --
+            // see Preferences.isRunningUnderXCTest and main.swift's
+            // populateDefaults() gate. A forced check, including
+            // VersionUpdateTests' direct VersionUpdateApi.check(forced:),
+            // is unaffected.
+            if Preferences.isRunningUnderXCTest {
+                return
+            }
             if UserDefaults.standard.bool(forKey: kCheckUpdateAutomatically) == false {
                 return
             }
@@ -373,6 +392,15 @@ extension AppDelegate {
 
 extension AppDelegate {
     private func enableBopomofoFontAnnotationSupportMenuItemIfRelevantFontsInstalled() {
+        // Sets a one-shot flag in the real domain. This bundle is also the
+        // XCTest host, so it would run before any test does (and so before
+        // PreferenceSandbox's snapshot) -- see
+        // Preferences.isRunningUnderXCTest and main.swift's
+        // populateDefaults() gate.
+        if Preferences.isRunningUnderXCTest {
+            return
+        }
+
         guard !Preferences.bopomofoFontAnnotationSupportMenuItemEnabledByInstalledFontsCheck_V1
         else {
             return

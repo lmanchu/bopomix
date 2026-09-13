@@ -71,6 +71,12 @@ if [ "$#" -eq 0 ]; then
   exit 64
 fi
 
+# A domain that does not exist needs no ABSENT sentinel of its own, unlike
+# the data folder above: `defaults export` succeeds either way and writes
+# the same 42-byte empty bplist for a missing domain as for an existing but
+# empty one (verified byte-for-byte). So "absent before, absent after" and
+# "empty before, empty after" both diff clean, while a run that creates the
+# domain and puts keys in it still shows up.
 defaults export "${DOMAIN}" "${BEFORE}"
 snapshot_data_folder > "${FOLDER_BEFORE}"
 
