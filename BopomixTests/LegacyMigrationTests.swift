@@ -307,7 +307,7 @@ final class LegacyMigrationTests: XCTestCase {
 
         XCTAssertEqual(
             outcome,
-            .failed(.destinationBlocked(path: legacyFolder.resolvingSymlinksInPath().path)))
+            .failed(.legacyFolderUnreadable(path: legacyFolder.resolvingSymlinksInPath().path)))
         // No new folder: the source is listed before the destination is
         // created, so an unreadable source costs nothing.
         XCTAssertFalse(FileManager.default.fileExists(atPath: newFolder.path))
@@ -645,12 +645,13 @@ final class LegacyMigrationTests: XCTestCase {
         let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
 
         XCTAssertEqual(outcome, .copied(changed: ["latin-user.txt"]))
-        // "acer" already known at any count, and "Acer" is the same word;
-        // only gmail is new.
+        // "Acer" is the same word as "acer", so no second row is added --
+        // the existing row is raised to the larger count instead, because
+        // the engine sums duplicate rows. gmail is new.
         XCTAssertEqual(
             try String(
                 contentsOf: newFolder.appendingPathComponent("latin-user.txt"), encoding: .utf8),
-            "acer\t3\ngmail\t2\n")
+            "acer\t9\ngmail\t2\n")
     }
 
     func testSkipsAFileThatIsNotValidUTF8AndKeepsGoing() throws {
@@ -662,9 +663,12 @@ final class LegacyMigrationTests: XCTestCase {
             to: legacyFolder.appendingPathComponent("bad.txt"))
         try "甲 ㄐㄧㄚˇ\n".write(
             to: legacyFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
-        try "# header\n".write(
+        // Real content, not just a header: a header-only destination is a
+        // placeholder and would be replaced byte for byte, encoding and
+        // all, which is a different path (see the placeholder tests).
+        try "# header\n丙 ㄅㄧㄥˇ\n".write(
             to: newFolder.appendingPathComponent("bad.txt"), atomically: true, encoding: .utf8)
-        try "# header\n".write(
+        try "# header\n乙 ㄧˇ\n".write(
             to: newFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
 
         let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
@@ -677,10 +681,10 @@ final class LegacyMigrationTests: XCTestCase {
         // The good file was still merged, and the unreadable one untouched.
         XCTAssertEqual(
             try String(contentsOf: newFolder.appendingPathComponent("data.txt"), encoding: .utf8),
-            "# header\n甲 ㄐㄧㄚˇ\n")
+            "# header\n乙 ㄧˇ\n甲 ㄐㄧㄚˇ\n")
         XCTAssertEqual(
             try String(contentsOf: newFolder.appendingPathComponent("bad.txt"), encoding: .utf8),
-            "# header\n")
+            "# header\n丙 ㄅㄧㄥˇ\n")
     }
 
     func testSkipsWhenTheDestinationFileIsASymlink() throws {
@@ -734,18 +738,70 @@ final class LegacyMigrationTests: XCTestCase {
             afterFirst)
     }
 
-    // MARK: - linesToAppend
+    // MARK: - mergedText
 
     func testNeverCarriesBlankOrCommentLines() {
-        let additions = LegacyMigration.linesToAppend(
+        let merged = LegacyMigration.mergedText(
             legacy: "# legacy header\n\n   \n甲 ㄐㄧㄚˇ\n", existing: "", isLatinUserWordList: false)
-        XCTAssertEqual(additions, ["甲 ㄐㄧㄚˇ"])
+        XCTAssertEqual(merged, "甲 ㄐㄧㄚˇ\n")
     }
 
     func testDoesNotRepeatALegacyLineThatAppearsTwice() {
-        let additions = LegacyMigration.linesToAppend(
+        let merged = LegacyMigration.mergedText(
             legacy: "甲 ㄐㄧㄚˇ\n甲 ㄐㄧㄚˇ\n", existing: "", isLatinUserWordList: false)
-        XCTAssertEqual(additions, ["甲 ㄐㄧㄚˇ"])
+        XCTAssertEqual(merged, "甲 ㄐㄧㄚˇ\n")
+    }
+
+    func testReportsNoChangeWhenEveryLegacyLineIsAlreadyThere() {
+        XCTAssertNil(
+            LegacyMigration.mergedText(
+                legacy: "甲 ㄐㄧㄚˇ\n", existing: "# header\n甲 ㄐㄧㄚˇ\n",
+                isLatinUserWordList: false))
+    }
+
+    /// U+2028 and friends are newlines to Swift but not to the engine's
+    /// `std::getline(…, '\n')`, so a record containing one stays one
+    /// record.
+    func testDoesNotBreakLinesTheEngineWouldKeepWhole() {
+        XCTAssertEqual(LegacyMigration.splitLines("a\u{2028}b\nc"), ["a\u{2028}b", "c"])
+        XCTAssertEqual(LegacyMigration.splitLines("a\r\nb\n"), ["a", "b", ""])
+    }
+
+    // MARK: - latin-user.txt counts
+
+    func testRaisesAnExistingCountToTheLegacyOne() {
+        let merged = LegacyMigration.mergedText(
+            legacy: "acer\t9\n", existing: "acer\t3\n", isLatinUserWordList: true)
+        XCTAssertEqual(merged, "acer\t9\n")
+    }
+
+    func testLeavesAHigherOrEqualExistingCountAlone() {
+        XCTAssertNil(
+            LegacyMigration.mergedText(
+                legacy: "acer\t2\n", existing: "acer\t3\n", isLatinUserWordList: true))
+        XCTAssertNil(
+            LegacyMigration.mergedText(
+                legacy: "acer\t3\n", existing: "acer\t3\n", isLatinUserWordList: true))
+    }
+
+    /// A count raise must converge, or a `.partial` retry would keep
+    /// climbing -- which is exactly what appending a second row would do,
+    /// since the engine sums duplicates.
+    func testRaisingACountIsIdempotent() {
+        let once = LegacyMigration.mergedText(
+            legacy: "acer\t9\n", existing: "acer\t3\n", isLatinUserWordList: true)
+        XCTAssertEqual(once, "acer\t9\n")
+        XCTAssertNil(
+            LegacyMigration.mergedText(
+                legacy: "acer\t9\n", existing: once!, isLatinUserWordList: true))
+    }
+
+    func testCountsDuplicateDestinationRowsTheWayTheEngineWill() {
+        // The engine sums 2 + 2 = 4, so a legacy count of 3 adds nothing.
+        XCTAssertNil(
+            LegacyMigration.mergedText(
+                legacy: "acer\t3\n", existing: "acer\t2\nacer\t2\n",
+                isLatinUserWordList: true))
     }
 
     // MARK: - run, .partial
@@ -756,7 +812,7 @@ final class LegacyMigrationTests: XCTestCase {
         try FileManager.default.createDirectory(at: legacyFolder, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
         try Data([0xff, 0xfe]).write(to: legacyFolder.appendingPathComponent("bad.txt"))
-        try "# header\n".write(
+        try "# header\n丙 ㄅㄧㄥˇ\n".write(
             to: newFolder.appendingPathComponent("bad.txt"), atomically: true, encoding: .utf8)
 
         let result = LegacyMigration.run(
@@ -790,5 +846,81 @@ final class LegacyMigrationTests: XCTestCase {
         let result = LegacyMigration.preferencesToMigrate(
             legacy: ["AddPhraseHookPath": path], current: [:])
         XCTAssertEqual(result["AddPhraseHookPath"] as? String, path)
+    }
+
+    // MARK: - placeholder destinations and recovery
+
+    /// A destination holding nothing but this app's comment header is a
+    /// placeholder, so it is replaced byte for byte -- which is the only
+    /// way a legacy file in some other encoding ever arrives.
+    func testReplacesAHeaderOnlyDestinationWithTheLegacyBytesWhateverTheEncoding() throws {
+        let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
+        let newFolder = sandbox.appendingPathComponent("Bopomix")
+        try FileManager.default.createDirectory(at: legacyFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+        // Big5 bytes for 小麥, which is not valid UTF-8.
+        let big5 = Data([0xa4, 0x70, 0xbb, 0xf3, 0x0a])
+        try big5.write(to: legacyFolder.appendingPathComponent("data.txt"))
+        try "# Custom Phrases or Characters.\n#\n\n".write(
+            to: newFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+
+        XCTAssertEqual(outcome, .copied(changed: ["data.txt"]))
+        XCTAssertEqual(
+            try Data(contentsOf: newFolder.appendingPathComponent("data.txt")), big5)
+    }
+
+    /// ...and the second pass sees identical bytes and stands down, rather
+    /// than failing to decode them and reporting a skip for ever.
+    func testAHeaderOnlyReplacementConvergesOnTheNextRun() throws {
+        let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
+        let newFolder = sandbox.appendingPathComponent("Bopomix")
+        try FileManager.default.createDirectory(at: legacyFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+        try Data([0xa4, 0x70, 0xbb, 0xf3, 0x0a]).write(
+            to: legacyFolder.appendingPathComponent("data.txt"))
+        try "# header\n".write(
+            to: newFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            LegacyMigration.copyUserData(from: legacyFolder, to: newFolder),
+            .copied(changed: ["data.txt"]))
+        XCTAssertEqual(
+            LegacyMigration.copyUserData(from: legacyFolder, to: newFolder), .notNeeded)
+    }
+
+    /// A file that could not be read one run and can be the next must
+    /// finish the job and set the marker.
+    func testRunRecoversOnceTheUnreadableFileBecomesReadable() throws {
+        let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
+        let newFolder = sandbox.appendingPathComponent("Bopomix")
+        try FileManager.default.createDirectory(at: legacyFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+        let legacyFile = legacyFolder.appendingPathComponent("data.txt")
+        try Data([0xff, 0xfe]).write(to: legacyFile)
+        // A destination with real content, so the placeholder path above
+        // does not apply and the bad encoding really is a skip.
+        try "# header\n乙 ㄧˇ\n".write(
+            to: newFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+
+        let first = LegacyMigration.run(
+            legacyPreferences: [:], currentPreferences: [:],
+            legacyDefaultFolder: legacyFolder, newFolder: newFolder,
+            prefsAlreadyMigrated: false, userDataAlreadyMigrated: false)
+        XCTAssertFalse(first.setUserDataMarker)
+
+        try "甲 ㄐㄧㄚˇ\n".write(to: legacyFile, atomically: true, encoding: .utf8)
+
+        let second = LegacyMigration.run(
+            legacyPreferences: [:], currentPreferences: [:],
+            legacyDefaultFolder: legacyFolder, newFolder: newFolder,
+            prefsAlreadyMigrated: true, userDataAlreadyMigrated: false)
+        XCTAssertEqual(second.userDataOutcome, .copied(changed: ["data.txt"]))
+        XCTAssertTrue(second.setUserDataMarker)
+        XCTAssertNil(LegacyMigration.userNoticeReason(for: second.userDataOutcome))
+        XCTAssertEqual(
+            try String(contentsOf: newFolder.appendingPathComponent("data.txt"), encoding: .utf8),
+            "# header\n乙 ㄧˇ\n甲 ㄐㄧㄚˇ\n")
     }
 }

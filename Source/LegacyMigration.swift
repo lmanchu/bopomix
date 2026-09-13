@@ -46,9 +46,10 @@ import Foundation
 ///  * nothing already present under the new identity is overwritten --
 ///    preferences are only filled in where the new domain has no value,
 ///    and the user-data folder is merged a line at a time: a file the new
-///    folder lacks is copied, and one it already has gains only the
-///    legacy lines it is missing, appended at the end. Existing content,
-///    its order and its comment header are left alone.
+///    folder lacks is copied, one that holds nothing but this app's own
+///    comment header is replaced wholesale, and one with real content in
+///    it gains only the legacy lines it is missing, appended at the end.
+///    Existing content, its order and its comment header are left alone.
 ///
 /// Never runs under XCTest: `main.swift` gates the call on
 /// `Preferences.isRunningUnderXCTest`, for the same reason
@@ -75,6 +76,15 @@ enum LegacyMigration {
     /// the whole migration as done and the user's dictionary never
     /// arrived, on that launch or any later one.
     static let userDataMarkerKey = "LegacyMcBopomofoUserDataMigrated"
+
+    /// Remembers which legacy files the last attempt could not read, so
+    /// the same complaint is not shown at every launch.
+    ///
+    /// Lives in the *new* domain only -- it is this app's own bookkeeping,
+    /// never something to migrate, so it does not belong in
+    /// `keysNeverMigrated` (that list filters what comes *out* of the
+    /// legacy domain).
+    static let skippedFilesKey = "LegacyMcBopomofoSkippedFiles"
 
     /// The key whose value decides whether it may be migrated; see
     /// `shouldMigrate(key:value:)`.
@@ -110,10 +120,14 @@ enum LegacyMigration {
         "NextUpdateCheckDate",
     ]
 
-    /// One legacy file that could not be merged, and why. The reason is
-    /// diagnostic text, not something to parse.
+    /// One legacy file that could not be merged, and why.
     struct SkippedFile: Equatable {
         var name: String
+        /// Deliberately coarse: free text for a log line and for the
+        /// notice's file list, not a case to branch on. Every reason leads
+        /// to the same handling -- skip this file, keep going, retry next
+        /// launch -- so nothing yet needs to tell them apart. Give it a
+        /// type when something does.
         var reason: String
     }
 
@@ -123,6 +137,7 @@ enum LegacyMigration {
         case customLocationUnavailable(path: String)
         case destinationBlocked(path: String)
         case legacySymlinkTargetMissing(path: String)
+        case legacyFolderUnreadable(path: String)
         case partial(skippedNames: [String], legacyFolderPath: String)
     }
 
@@ -272,72 +287,135 @@ enum LegacyMigration {
         return .folder(URL(fileURLWithPath: custom))
     }
 
-    /// The dedup key for one line of a legacy file.
-    ///
-    /// For `latin-user.txt` this must agree with the engine or the merge
-    /// makes a mess: `LatinLexicon::persistUserWords` keys on the text
-    /// before the first *tab* (a bare word is the whole line), lowercased
-    /// ASCII, and keeps the larger count. Two lines for one word with
-    /// different counts is precisely what it exists to avoid, so the word
-    /// alone -- not `word\tcount` -- is the key, and an incoming line for
-    /// a word the destination already knows is dropped rather than
-    /// appended.
-    ///
-    /// Every other file is a phrase list where the whole line is the
-    /// record, so the trimmed line is its own key.
-    static func mergeKey(for line: String, isLatinUserWordList: Bool) -> String {
-        guard isLatinUserWordList else {
-            return line
-        }
-        let word = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)[0]
-        return word.trimmingCharacters(in: .whitespaces).lowercased()
-    }
-
     /// The name the Latin lexicon keeps its learned words in.
     static let latinUserWordListName = "latin-user.txt"
 
-    /// The lines of `legacy` that `existing` does not already carry, in
-    /// the legacy file's own order.
+    /// Splits text the way the engine reads these files: on `\n` only,
+    /// with a trailing `\r` dropped from each line.
+    ///
+    /// Not on `Character.isNewline`, which also breaks at U+2028, U+000B
+    /// and U+0085 -- the engine's `std::getline(…, '\n')` does not, so
+    /// splitting there would cut a line the engine keeps whole. CRLF is
+    /// folded first because Swift makes `\r\n` a single `Character` that
+    /// is not equal to `"\n"`, so splitting on the literal would hand a
+    /// CRLF file back as one long line.
+    static func splitLines(_ text: String) -> [String] {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line in
+                line.hasSuffix("\r") ? String(line.dropLast()) : String(line)
+            }
+    }
+
+    /// Whether a line carries a record rather than a comment or nothing.
+    private static func isContentLine(_ trimmed: String) -> Bool {
+        !trimmed.isEmpty && !trimmed.hasPrefix("#")
+    }
+
+    /// One `latin-user.txt` row as the engine parses it: the text before
+    /// the first *tab* is the word, lowercased; what follows is a count,
+    /// defaulting to 1 and never below it. See `ParseUserWordLine` and
+    /// `ToLowerAscii` in `latin_lexicon.cpp`.
+    static func parseUserWord(_ line: String) -> (word: String, count: Int) {
+        let parts = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+        let word = parts[0].trimmingCharacters(in: .whitespaces).lowercased()
+        var count = 1
+        if parts.count > 1, let parsed = Int(parts[1].trimmingCharacters(in: .whitespaces)) {
+            count = max(parsed, 1)
+        }
+        return (word, count)
+    }
+
+    /// The destination's text with the legacy file merged into it, or nil
+    /// when there is nothing to change.
     ///
     /// Blank lines and `#` comments are never carried: the destination has
     /// its own header, written from this app's own template, and a merge
     /// that appended the other app's header every time would not be
-    /// idempotent.
+    /// idempotent. Comparison is on the trimmed line, so a CRLF legacy
+    /// file matches a LF destination instead of appending everything again
+    /// with `\r` tails.
     ///
-    /// Lines are split on `Character.isNewline` rather than on `"\n"`,
-    /// because Swift makes `\r\n` a single `Character` that is not equal
-    /// to `"\n"` -- splitting on the literal would hand a CRLF file back
-    /// as one long line. Each line is then compared trimmed of whitespace
-    /// and newlines, so a CRLF legacy file matches a LF destination
-    /// instead of appending everything again with `\r` tails.
+    /// `latin-user.txt` is the exception, twice over. Its records are
+    /// `word` or `word\tcount`, and `LatinLexicon` keys on the lowercased
+    /// word, so the whole line is the wrong identity -- two rows for one
+    /// word is exactly what `persistUserWords` exists to prevent. Worse,
+    /// `loadUserWordList` *sums* the counts of duplicate rows, so an
+    /// appended second row would inflate the word's weight on every load,
+    /// and again on every `.partial` retry. A word the destination already
+    /// knows therefore has its existing row **rewritten** to the larger of
+    /// the two counts, in place, rather than a row added. Rewriting is
+    /// what makes the retry idempotent.
+    ///
+    /// The result is rebuilt line by line, so a CRLF destination comes
+    /// back as LF. The engine strips `\r` when reading anyway, and this
+    /// app only ever writes LF.
     ///
     /// Pure, so the merge rules are testable on strings alone.
-    static func linesToAppend(legacy: String, existing: String, isLatinUserWordList: Bool)
-        -> [String]
-    {
-        var seen = Set<String>()
-        for line in existing.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty || trimmed.hasPrefix("#") {
-                continue
+    static func mergedText(legacy: String, existing: String, isLatinUserWordList: Bool) -> String? {
+        var lines = splitLines(existing)
+        if lines.last == "" {
+            lines.removeLast()
+        }
+        var changed = false
+
+        if isLatinUserWordList {
+            // word -> (index of its row, the count the engine will see)
+            var known: [String: (row: Int, count: Int)] = [:]
+            for (row, raw) in lines.enumerated() {
+                let trimmed = raw.trimmingCharacters(in: .whitespaces)
+                guard isContentLine(trimmed) else { continue }
+                let parsed = parseUserWord(trimmed)
+                guard !parsed.word.isEmpty else { continue }
+                if let seen = known[parsed.word] {
+                    // Rows the destination already duplicates: the engine
+                    // sums them, so that total is what we compare against.
+                    known[parsed.word] = (seen.row, seen.count + parsed.count)
+                } else {
+                    known[parsed.word] = (row, parsed.count)
+                }
             }
-            seen.insert(mergeKey(for: trimmed, isLatinUserWordList: isLatinUserWordList))
+            for raw in splitLines(legacy) {
+                let trimmed = raw.trimmingCharacters(in: .whitespaces)
+                guard isContentLine(trimmed) else { continue }
+                let parsed = parseUserWord(trimmed)
+                guard !parsed.word.isEmpty else { continue }
+                if let seen = known[parsed.word] {
+                    guard parsed.count > seen.count else { continue }
+                    lines[seen.row] = "\(parsed.word)\t\(parsed.count)"
+                    known[parsed.word] = (seen.row, parsed.count)
+                    changed = true
+                } else {
+                    lines.append("\(parsed.word)\t\(parsed.count)")
+                    known[parsed.word] = (lines.count - 1, parsed.count)
+                    changed = true
+                }
+            }
+        } else {
+            var seen = Set<String>()
+            for raw in lines {
+                let trimmed = raw.trimmingCharacters(in: .whitespaces)
+                if isContentLine(trimmed) {
+                    seen.insert(trimmed)
+                }
+            }
+            for raw in splitLines(legacy) {
+                let trimmed = raw.trimmingCharacters(in: .whitespaces)
+                guard isContentLine(trimmed), !seen.contains(trimmed) else { continue }
+                seen.insert(trimmed)
+                lines.append(trimmed)
+                changed = true
+            }
         }
 
-        var result: [String] = []
-        for line in legacy.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty || trimmed.hasPrefix("#") {
-                continue
-            }
-            let key = mergeKey(for: trimmed, isLatinUserWordList: isLatinUserWordList)
-            if seen.contains(key) {
-                continue
-            }
-            seen.insert(key)
-            result.append(trimmed)
-        }
-        return result
+        guard changed else { return nil }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Whether text holds any record at all, as opposed to only the
+    /// comment header this app writes into a fresh user file.
+    static func hasContentLines(_ text: String) -> Bool {
+        splitLines(text).contains { isContentLine($0.trimmingCharacters(in: .whitespaces)) }
     }
 
     /// Merges the legacy user-data folder into the new location, line by
@@ -439,7 +517,7 @@ enum LegacyMigration {
         } catch {
             NSLog(
                 "LegacyMigration: cannot read \(resolvedLegacy.path): \(error.localizedDescription)")
-            return .failed(.destinationBlocked(path: resolvedLegacy.path))
+            return .failed(.legacyFolderUnreadable(path: resolvedLegacy.path))
         }
         if sources.isEmpty {
             return .notNeeded
@@ -486,27 +564,46 @@ enum LegacyMigration {
             do {
                 let legacyData = try Data(contentsOf: source.url)
                 let existingData = try Data(contentsOf: destination)
+
+                if legacyData == existingData {
+                    // Already identical -- including after an earlier
+                    // placeholder replacement below, which is what lets
+                    // that path converge instead of reporting a skip
+                    // forever.
+                    continue
+                }
+
+                let existingText = String(data: existingData, encoding: .utf8)
+                if let existingText, !hasContentLines(existingText) {
+                    // The destination holds nothing but the comment header
+                    // this app writes into a fresh user file. Replace it
+                    // wholesale, bytes and all -- no decoding, so a legacy
+                    // file in some other encoding still arrives rather than
+                    // being skipped for ever while the user sees an empty
+                    // dictionary.
+                    try legacyData.write(to: destination, options: .atomic)
+                    changed.append(source.name)
+                    continue
+                }
+
                 guard let legacyText = String(data: legacyData, encoding: .utf8),
-                    let existingText = String(data: existingData, encoding: .utf8)
+                    let existingText
                 else {
                     // Guessing at an unknown encoding risks writing
-                    // mojibake into the user's dictionary. Say so instead.
+                    // mojibake into words the user actually has. Say so
+                    // instead.
                     skipped.append(
                         SkippedFile(name: source.name, reason: "not valid UTF-8"))
                     NSLog("LegacyMigration: \(source.name) is not valid UTF-8; skipping")
                     continue
                 }
-                let additions = linesToAppend(
-                    legacy: legacyText, existing: existingText,
-                    isLatinUserWordList: source.name == latinUserWordListName)
-                if additions.isEmpty {
+                guard
+                    let merged = mergedText(
+                        legacy: legacyText, existing: existingText,
+                        isLatinUserWordList: source.name == latinUserWordListName)
+                else {
                     continue
                 }
-                var merged = existingText
-                if !merged.isEmpty, merged.last?.isNewline != true {
-                    merged += "\n"
-                }
-                merged += additions.joined(separator: "\n") + "\n"
                 guard let mergedData = merged.data(using: .utf8) else {
                     skipped.append(SkippedFile(name: source.name, reason: "cannot encode merge"))
                     continue
@@ -655,7 +752,25 @@ enum LegacyMigration {
         if result.setUserDataMarker {
             defaults.set(true, forKey: userDataMarkerKey)
         }
-        pendingUserNotice = userNoticeReason(for: result.userDataOutcome)
+        // Say something the first time a set of files cannot be read, and
+        // again only if that set changes. A folder with one permanently
+        // unreadable file should not greet the user at every launch, but a
+        // *different* file failing is news.
+        switch result.userDataOutcome {
+        case .partial(_, let skipped, _):
+            let names = skipped.map(\.name).sorted()
+            if names == defaults.stringArray(forKey: skippedFilesKey) {
+                pendingUserNotice = nil
+            } else {
+                defaults.set(names, forKey: skippedFilesKey)
+                pendingUserNotice = userNoticeReason(for: result.userDataOutcome)
+            }
+        case .copied, .notNeeded:
+            defaults.removeObject(forKey: skippedFilesKey)
+            pendingUserNotice = nil
+        case .failed, .customLocationUnavailable, .skipped:
+            pendingUserNotice = userNoticeReason(for: result.userDataOutcome)
+        }
 
         NSLog(
             "LegacyMigration: migrated \(result.preferencesToWrite.count) preference key(s) from \(legacyDomain); user data: \(result.userDataOutcome)"

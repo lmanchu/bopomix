@@ -262,3 +262,4 @@
 "Bopomix could not import your McBopomofo user phrases yet: %@ points somewhere that is not available. It will try again the next time it starts." = "混打注音尚未能匯入小麥注音的使用者詞庫：%@ 指向的位置目前無法讀取，下次啟動時會再試一次。";
 "Bopomix could not import your McBopomofo user phrases: %@ is in the way and is not a folder Bopomix can write to." = "混打注音無法匯入小麥注音的使用者詞庫：%@ 擋住了去路，而且不是混打注音可以寫入的資料夾。";
 "Bopomix imported some of your McBopomofo user phrases, but could not read these files: %@. The originals are still in %@. It will try again the next time it starts." = "混打注音已匯入部分小麥注音的使用者詞庫，但無法讀取這些檔案：%@。原始檔案仍在 %@，下次啟動時會再試一次。";
+"Bopomix could not read your McBopomofo user phrase folder (%@). It will try again the next time it starts." = "混打注音無法讀取小麥注音的使用者詞庫資料夾（%@），下次啟動時會再試一次。";

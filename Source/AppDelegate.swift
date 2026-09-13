@@ -256,6 +256,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
                 format: NSLocalizedString(
                     "Bopomix could not import your McBopomofo user phrases yet: the folder they are kept in (%@) is not available. It will try again the next time it starts.",
                     comment: ""), path)
+        case .legacyFolderUnreadable(let path):
+            return String(
+                format: NSLocalizedString(
+                    "Bopomix could not read your McBopomofo user phrase folder (%@). It will try again the next time it starts.",
+                    comment: ""), path)
         case .legacySymlinkTargetMissing(let path):
             return String(
                 format: NSLocalizedString(
