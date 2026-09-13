@@ -102,6 +102,7 @@ guard let bundleID = Bundle.main.bundleIdentifier, let server = IMKServer(name: 
 // see Preferences.isRunningUnderXCTest and
 // docs/REVERIFY-P3-2026-09-12.md's P-3.
 if !Preferences.isRunningUnderXCTest {
+    LegacyMigration.migrateIfNeeded()
     Preferences.populateDefaults()
 }
 NSApp.run()

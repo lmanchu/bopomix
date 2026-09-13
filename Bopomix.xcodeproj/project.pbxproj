@@ -64,6 +64,7 @@
 		D4E5C211AAA0020000000000 /* MixedScriptKeyHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5C211AAA0010000000000 /* MixedScriptKeyHandlerTests.swift */; };
 		D4E5C212AAA0020000000000 /* LatinCompletionKeyHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5C212AAA0010000000000 /* LatinCompletionKeyHandlerTests.swift */; };
 		D4E5C212AAB0020000000000 /* PreferenceSandbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5C212AAB0010000000000 /* PreferenceSandbox.swift */; };
+		D4E5C214AAB0020000000000 /* LegacyMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5C214AAB0010000000000 /* LegacyMigrationTests.swift */; };
 		D43737C92DF9C35800D9707C /* InputMethodController+KeyHandlerDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43737C82DF9C35100D9707C /* InputMethodController+KeyHandlerDelegate.swift */; };
 		D43737CB2DF9C48300D9707C /* InputMethodController+CandidateControllerDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43737CA2DF9C48200D9707C /* InputMethodController+CandidateControllerDelegate.swift */; };
 		D43FC40B2B23788400ED5A1C /* InputMacro.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43FC40A2B23788400ED5A1C /* InputMacro.swift */; };
@@ -71,6 +72,7 @@
 		D449AD5F2B393C00000C5812 /* InputMacroTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D449AD5E2B393C00000C5812 /* InputMacroTests.swift */; };
 		D449AD612B39506D000C5812 /* ServiceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D449AD602B39506D000C5812 /* ServiceProviderTests.swift */; };
 		D44FB74527915565003C80A6 /* Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44FB74427915555003C80A6 /* Preferences.swift */; };
+		D4E5C213AAB0020000000000 /* LegacyMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5C213AAB0010000000000 /* LegacyMigration.swift */; };
 		D44FB74D2792189A003C80A6 /* PhraseReplacementMap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D44FB74B2792189A003C80A6 /* PhraseReplacementMap.cpp */; };
 		D456576E279E4F7B00DF6BC9 /* KeyHandlerInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = D456576D279E4F7B00DF6BC9 /* KeyHandlerInput.swift */; };
 		D461B792279DAC010070E734 /* InputState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D461B791279DAC010070E734 /* InputState.swift */; };
@@ -222,12 +224,14 @@
 		D4E5C211AAA0010000000000 /* MixedScriptKeyHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixedScriptKeyHandlerTests.swift; sourceTree = "<group>"; };
 		D4E5C212AAA0010000000000 /* LatinCompletionKeyHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatinCompletionKeyHandlerTests.swift; sourceTree = "<group>"; };
 		D4E5C212AAB0010000000000 /* PreferenceSandbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferenceSandbox.swift; sourceTree = "<group>"; };
+		D4E5C214AAB0010000000000 /* LegacyMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyMigrationTests.swift; sourceTree = "<group>"; };
 		D43737C82DF9C35100D9707C /* InputMethodController+KeyHandlerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InputMethodController+KeyHandlerDelegate.swift"; sourceTree = "<group>"; };
 		D43737CA2DF9C48200D9707C /* InputMethodController+CandidateControllerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InputMethodController+CandidateControllerDelegate.swift"; sourceTree = "<group>"; };
 		D43FC40A2B23788400ED5A1C /* InputMacro.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputMacro.swift; sourceTree = "<group>"; };
 		D449AD5E2B393C00000C5812 /* InputMacroTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputMacroTests.swift; sourceTree = "<group>"; };
 		D449AD602B39506D000C5812 /* ServiceProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceProviderTests.swift; sourceTree = "<group>"; };
 		D44FB74427915555003C80A6 /* Preferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Preferences.swift; sourceTree = "<group>"; };
+		D4E5C213AAB0010000000000 /* LegacyMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyMigration.swift; sourceTree = "<group>"; };
 		D44FB74B2792189A003C80A6 /* PhraseReplacementMap.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = PhraseReplacementMap.cpp; sourceTree = "<group>"; };
 		D44FB74C2792189A003C80A6 /* PhraseReplacementMap.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PhraseReplacementMap.h; sourceTree = "<group>"; };
 		D456576D279E4F7B00DF6BC9 /* KeyHandlerInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyHandlerInput.swift; sourceTree = "<group>"; };
@@ -364,6 +368,7 @@
 				D4314F0C2ED369090071DD71 /* NumberInputHelper.swift */,
 				D427F76B278CA1BA004A2160 /* AppDelegate.swift */,
 				D44FB74427915555003C80A6 /* Preferences.swift */,
+				D4E5C213AAB0010000000000 /* LegacyMigration.swift */,
 				D47F7DCF278C0897002F9DD7 /* NonModalAlertWindowController.swift */,
 				D41B626D2B87B5C100583148 /* ServiceProviderInputHelper.h */,
 				D41B626E2B87B5C100583148 /* ServiceProviderInputHelper.mm */,
@@ -559,6 +564,7 @@
 				D4E5C211AAA0010000000000 /* MixedScriptKeyHandlerTests.swift */,
 				D4E5C212AAA0010000000000 /* LatinCompletionKeyHandlerTests.swift */,
 				D4E5C212AAB0010000000000 /* PreferenceSandbox.swift */,
+				D4E5C214AAB0010000000000 /* LegacyMigrationTests.swift */,
 				D47D73A327A5D43900255A50 /* KeyHandlerBopomofoTests.swift */,
 				D4A8E43527A9E982002F7A07 /* KeyHandlerPlainBopomofoTests.swift */,
 				D485D3B82796A8A000657FF3 /* PreferencesTests.swift */,
@@ -786,6 +792,7 @@
 				D44FB74D2792189A003C80A6 /* PhraseReplacementMap.cpp in Sources */,
 				D4A13D5A27A59F0B003BE359 /* InputMethodController.swift in Sources */,
 				D44FB74527915565003C80A6 /* Preferences.swift in Sources */,
+				D4E5C213AAB0020000000000 /* LegacyMigration.swift in Sources */,
 				6A660A702EAF371000D53D7B /* ByteBlockBackedDictionary.cpp in Sources */,
 				6A833E522F0A0FB30086AD0C /* VariantAnnotator.cpp in Sources */,
 				D4314F0D2ED3690F0071DD71 /* NumberInputHelper.swift in Sources */,
@@ -835,6 +842,7 @@
 				D4E5C211AAA0020000000000 /* MixedScriptKeyHandlerTests.swift in Sources */,
 				D4E5C212AAA0020000000000 /* LatinCompletionKeyHandlerTests.swift in Sources */,
 				D4E5C212AAB0020000000000 /* PreferenceSandbox.swift in Sources */,
+				D4E5C214AAB0020000000000 /* LegacyMigrationTests.swift in Sources */,
 				D449AD5F2B393C00000C5812 /* InputMacroTests.swift in Sources */,
 				D4C2A9872B4309D700113711 /* UTF8HelperTest.mm in Sources */,
 				D47D73A427A5D43900255A50 /* KeyHandlerBopomofoTests.swift in Sources */,
