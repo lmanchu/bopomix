@@ -67,7 +67,7 @@ TEST(BopomofoShapeTrackerTest, ToneKeyNeverConflicts) {
 
 // "th": t -> CH (consonant), h -> C (consonant). Two different consonants
 // in a row is the required early-reject example from
-// zhuyin-ime-personal.md's P1 design section.
+// the design notes' P1 design section.
 TEST(BopomofoShapeTrackerTest, ThRejectsAtSecondLetter) {
   BopomofoShapeTracker tracker;
   EXPECT_TRUE(tracker.feed(Standard(), 't'));

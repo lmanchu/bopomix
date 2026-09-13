@@ -35,10 +35,10 @@ class KeyHandlerBopomofoTests: XCTestCase {
 
     var handler = KeyHandler()
     // P3 fix #5 (XCTest/machine-preference isolation, see
-    // ~/.claude/plans/zhuyin-ime-personal.md's P3 fix #5): these upstream
+    // the design notes' P3 fix #5): these upstream
     // tests know nothing about mixedScript and never save/restore its
     // preferences themselves, so on a machine that already has
-    // MixedScriptEnabled=1 in its real plist (Lman dogfoods a master
+    // MixedScriptEnabled=1 in its real plist (the maintainer dogfoods a master
     // build) they would otherwise inherit that value and see mixedScript
     // rewrite readings it never used to (e.g. testInvalidBpmf's "ni4"
     // becomes a Rule-A literal run instead of the upstream

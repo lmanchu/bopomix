@@ -320,7 +320,7 @@ TEST(MixedScriptTrackerTest, PopLastLatinCharAfterAcceptingCompletion) {
   EXPECT_EQ(tracker.latinRun(), "the");
 }
 
-// P3 fix #2 (see zhuyin-ime-personal.md's P3 fix #2 and
+// P3 fix #2 (see the design notes' P3 fix #2 and
 // LatinLexicon::rememberWord()'s use-count doc): acceptCompletion() marks
 // the run as already remembered so KeyHandler's natural-typing learn hook
 // does not double-count it when the same run later reaches an ordinary

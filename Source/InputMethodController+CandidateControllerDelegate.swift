@@ -57,7 +57,7 @@ extension BopomixInputMethodController: CandidateControllerDelegate {
             let selectedCandidate = state.candidates[Int(index)]
 
             // P3 English prediction + Tab completion (see
-            // ~/.claude/plans/zhuyin-ime-personal.md's F3 scope): a pick
+            // the design notes' F3 scope): a pick
             // from the completion candidate window is not a grid
             // position fixNode(...) could override (see
             // KeyHandler.h's acceptLatinCompletionWithValue: doc), so it

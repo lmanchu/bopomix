@@ -11,8 +11,7 @@ Bopomix (混打注音輸入法) is a fork of OpenVanilla McBopomofo (小麥注�
 **Runtime:** macOS 10.15 (Catalina) or later
 
 **Development:**
-- macOS 14.7 or later
-- Xcode 15.3 or later
+- macOS 26 or later, Xcode 26 or later (Swift 6.3) -- what the maintainer builds with; upstream McBopomofo's stated floor was macOS 14.7 / Xcode 15.3 and has not been re-verified for this fork
 - Python 3.9 (for dictionary data generation)
 
 ## Building and Running

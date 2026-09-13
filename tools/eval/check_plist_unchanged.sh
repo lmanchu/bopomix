@@ -38,6 +38,15 @@
 
 set -u
 
+# xcodebuild does not hand its own environment to the test host process:
+# only variables named TEST_RUNNER_<NAME> get through, with the prefix
+# stripped. So `BOPOMIX_EVAL_CORPUS=... check_plist_unchanged.sh xcodebuild
+# ... test` would otherwise reach the eval tests as "unset" and skip them.
+# Forward it under the name xcodebuild actually propagates.
+if [ -n "${BOPOMIX_EVAL_CORPUS:-}" ]; then
+  export TEST_RUNNER_BOPOMIX_EVAL_CORPUS="${BOPOMIX_EVAL_CORPUS}"
+fi
+
 DOMAIN="io.github.lmanchu.inputmethod.bopomix"
 DATA_FOLDER="${HOME}/Library/Application Support/Bopomix"
 WORKDIR="$(mktemp -d -t bopomix-plist-guard)"

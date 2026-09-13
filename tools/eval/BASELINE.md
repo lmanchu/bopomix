@@ -7,7 +7,8 @@ unmodified F1/F2 logic -- this is the *baseline*, i.e. what the stock
 McBopomofo engine does today, before any zh/en mixed-typing or AI
 re-ranking work lands.
 
-Corpus: `/Users/lman/Dev/mixime-private/eval200.tsv` -- 200 rows (vault=200, synthetic=0).
+Corpus: the maintainer's private 200-sentence corpus (not in this repo; build
+your own with `tools/eval/build_corpus.py`) -- 200 rows (vault=200, synthetic=0).
 Language model data: `build/Build/Products/Debug/Bopomix.app/Contents/Resources/data.txt` (sha256 0deae7b7c1dcde1d7a30d139e7068543e0c0e7112e944b63eb52947bca1db7ac).
 
 ## Commands
@@ -15,7 +16,7 @@ Language model data: `build/Build/Products/Debug/Bopomix.app/Contents/Resources/
 ```
 cmake -S Source/Engine -B build-engine -DENABLE_TEST=ON
 cmake --build build-engine
-python3 tools/eval/run_eval.py --corpus /Users/lman/Dev/mixime-private/eval200.tsv \
+python3 tools/eval/run_eval.py --corpus <out-of-repo>/corpus.tsv \
     --cli build-engine/tools/eval/bopomix-eval --data build/Build/Products/Debug/Bopomix.app/Contents/Resources
 ```
 
@@ -36,7 +37,7 @@ each gold English token still appears literally in the composed output.
 | latency (avg / p50 / p95 / max) | 2475us / 2517us / 4308us / 6012us |
 
 This is expected to be near 0%: the current engine has no English-awareness
-at all (see zhuyin-ime-personal.md's F1 scope). Every English letter is
+at all (see the design notes' F1 scope). Every English letter is
 also a valid standard-layout Bopomofo key, so an English word typed without
 switching modes is either silently dropped (composition fails
 `hasUnigrams`) or misrecognized as unrelated Chinese character(s) -- it is
@@ -67,7 +68,7 @@ Generated: 2026-09-10T17:21:35+08:00
 
 Same corpus and language model as the P0.5 baseline above, run with
 `--mixed on` (Source/Engine/MixedScript/, see
-~/.claude/plans/zhuyin-ime-personal.md's P1 design section) instead of the
+the design notes' P1 design section) instead of the
 baseline's unmodified engine.
 
 **These numbers are not acceptance criteria.** `bopomix-eval` reimplements
@@ -82,7 +83,7 @@ section as an engine regression check only.
 ### Commands
 
 ```
-python3 tools/eval/run_eval.py --corpus /Users/lman/Dev/mixime-private/eval200.tsv \
+python3 tools/eval/run_eval.py --corpus <out-of-repo>/corpus.tsv \
     --cli build-engine/tools/eval/bopomix-eval --data build/Build/Products/Debug/Bopomix.app/Contents/Resources \
     --mixed on --lexicon-dir Source/Data
 ```

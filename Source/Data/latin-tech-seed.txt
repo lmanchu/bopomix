@@ -1,5 +1,5 @@
 # Hand-curated tech/product term seed list for the P1 zh/en mixed-typing
-# feature (see ~/.claude/plans/zhuyin-ime-personal.md's "P1 設計" section).
+# feature (see the design notes' "P1 設計" section).
 # Loaded on top of latin-words.txt (see tools/lexicon/build_lexicon.py) so
 # these terms are guaranteed present even though many are not real English
 # dictionary words and would never appear in a system word list. Rank
@@ -24,15 +24,7 @@ github	12
 notion	13
 zoom	14
 xcode	15
-irisgo	16
 openrouter	17
-tachikoma	18
-hermes	19
-gloria	20
-apollo	21
-argus	22
-wells	23
-magi	24
 computex	25
 oem	26
 dau	27

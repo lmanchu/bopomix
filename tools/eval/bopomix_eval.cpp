@@ -90,7 +90,7 @@ void PrintUsage(const char* argv0) {
       << "\n"
       << "--mixed on drives `keys` mode through the same "
          "Source/Engine/MixedScript/ decision engine KeyHandler.mm uses "
-         "(see zhuyin-ime-personal.md's P1 section); it is a no-op for "
+         "(see the design notes' P1 section); it is a no-op for "
          "readings/keyseq. --mixed on requires --lexicon-dir <dir> "
          "containing latin-words.txt and latin-tech-seed.txt (see "
          "tools/lexicon/build_lexicon.py and Source/Data/).\n";
@@ -139,7 +139,7 @@ bool ParseArgs(int argc, char** argv, Args* outArgs, std::string* error) {
   }
   if (outArgs->layout != "standard") {
     // Only the standard (dayi... actually "Da Chien"/Standard) layout is
-    // supported for now. See zhuyin-ime-personal.md P0.5 scope.
+    // supported for now. See the design notes' P0.5 scope.
     *error = "only --layout standard is supported by this eval harness";
     return false;
   }

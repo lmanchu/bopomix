@@ -85,7 +85,7 @@ class LatinPassthroughLM : public Formosa::Gramambular2::LanguageModel {
   // window -- both funnel through fixNodeWithReading:) to tell whether the
   // user just explicitly picked a mixedScript Latin candidate, which is
   // when (and only when) LatinLexicon::rememberWord() should be called --
-  // see zhuyin-ime-personal.md's P1 design notes on why the automatic
+  // see the design notes' P1 design notes on why the automatic
   // dictionary-plus-space default must NOT itself count as learning.
   bool hasValue(const std::string& key, const std::string& value) const;
 

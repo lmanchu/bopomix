@@ -26,7 +26,7 @@ import XCTest
 @testable import Bopomix
 
 /// KeyHandler-level integration tests for P3 English prediction + Tab
-/// completion (see ~/.claude/plans/zhuyin-ime-personal.md's F3 scope).
+/// completion (see the design notes' F3 scope).
 /// Mirrors MixedScriptKeyHandlerTests' approach (drive the real KeyHandler
 /// FSM, not the engine in isolation) for the same reason P1's review found:
 /// every interesting interaction here is with candidate-window/Tab/grid
@@ -353,7 +353,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         XCTAssertNil(predictedCompletion, "\(state)")
     }
 
-    /// P3 fix #3 (see ~/.claude/plans/zhuyin-ime-personal.md's P3 fix #3
+    /// P3 fix #3 (see the design notes' P3 fix #3
     /// and KeyHandler's _offeredCompletionFor:lexicon:): once a pending run is
     /// itself already a recognized word ranked at least as well as the
     /// best longer completion sharing its prefix, that counts as "the
@@ -1503,9 +1503,11 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     }
 
     /// How many letters of an English token does the user actually have
-    /// to type before Tab would complete it, on eval200 (the only
-    /// Traditional-Mandarin-plus-real-project-vocabulary corpus this repo
-    /// has) -- measured two ways (P3 fix #4): "no history" evaluates
+    /// to type before Tab would complete it, on the corpus named by
+    /// `BOPOMIX_EVAL_CORPUS` (a Traditional-Mandarin-plus-real-project-
+    /// vocabulary TSV, kept outside this repo -- build one from your own
+    /// text with tools/eval/build_corpus.py) -- measured two ways
+    /// (P3 fix #4): "no history" evaluates
     /// every token cold, against just the built-in dictionary/tech seed;
     /// "with history" replays the corpus in row order, and after
     /// evaluating each row's tokens, types and commits every eligible one
@@ -1514,14 +1516,23 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     /// enough to be confirmed becomes more completable later in the
     /// corpus. This is a measurement/report, not a
     /// correctness gate (except the pure-Chinese control below): skipped
-    /// outright when the private corpus is not present, and neither table
+    /// outright when `BOPOMIX_EVAL_CORPUS` is unset, and neither table
     /// asserts thresholds the way testEval200ThroughKeyHandler does --
     /// there is no prior baseline to hold either to yet, this run creates
     /// one for both.
     func testEval200LatinCompletion() throws {
-        let corpusPath = NSHomeDirectory() + "/Dev/mixime-private/eval200.tsv"
+        guard let corpusPath = ProcessInfo.processInfo.environment["BOPOMIX_EVAL_CORPUS"],
+            !corpusPath.isEmpty
+        else {
+            throw XCTSkip(
+                "BOPOMIX_EVAL_CORPUS is not set; nothing to measure. Point it at a "
+                    + "corpus TSV built from your own text with tools/eval/build_corpus.py.")
+        }
         guard FileManager.default.fileExists(atPath: corpusPath) else {
-            throw XCTSkip("corpus not present at \(corpusPath); nothing to measure")
+            throw XCTSkip(
+                "BOPOMIX_EVAL_CORPUS points at \(corpusPath), which does not exist; "
+                    + "nothing to measure. Build a corpus TSV from your own text with "
+                    + "tools/eval/build_corpus.py.")
         }
         let rows = try loadEvalRows(at: corpusPath)
         XCTAssertFalse(rows.isEmpty)

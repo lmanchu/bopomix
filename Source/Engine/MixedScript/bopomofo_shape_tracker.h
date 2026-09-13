@@ -51,7 +51,7 @@ namespace McBopomofo::MixedScript {
 // (there is only one consonant/medial/vowel slot per syllable, and a tone
 // key -- which is exempt from this check -- always ends the syllable and
 // is composed immediately by KeyHandler, which resets this tracker before
-// the next key). See zhuyin-ime-personal.md's P1 design section for the
+// the next key). See the design notes' P1 design section for the
 // quantification this mirrors (~74% of English tokens become
 // "uncomposable" within 2-3 letters) and the explicit "th"/"sl" examples.
 //

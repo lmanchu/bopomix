@@ -26,7 +26,7 @@ import XCTest
 @testable import Bopomix
 
 /// KeyHandler-level integration tests for P1 zh/en mixed typing (see
-/// ~/.claude/plans/zhuyin-ime-personal.md). The engine-level tests under
+/// the design notes). The engine-level tests under
 /// `Source/Engine/MixedScript/` cover the rules in isolation; everything
 /// here drives the real `KeyHandler` FSM the way the input method does,
 /// because every blocking defect found in the first review round
@@ -791,10 +791,18 @@ class MixedScriptKeyHandlerTests: XCTestCase {
     /// dropping a whole run). This types the same corpus through the real
     /// `KeyHandler` instead and is the number that counts.
     func testEval200ThroughKeyHandler() throws {
-        let corpusPath =
-            NSHomeDirectory() + "/Dev/mixime-private/eval200.tsv"
+        guard let corpusPath = ProcessInfo.processInfo.environment["BOPOMIX_EVAL_CORPUS"],
+            !corpusPath.isEmpty
+        else {
+            throw XCTSkip(
+                "BOPOMIX_EVAL_CORPUS is not set; nothing to measure. Point it at a "
+                    + "corpus TSV built from your own text with tools/eval/build_corpus.py.")
+        }
         guard FileManager.default.fileExists(atPath: corpusPath) else {
-            throw XCTSkip("corpus not present at \(corpusPath); nothing to measure")
+            throw XCTSkip(
+                "BOPOMIX_EVAL_CORPUS points at \(corpusPath), which does not exist; "
+                    + "nothing to measure. Build a corpus TSV from your own text with "
+                    + "tools/eval/build_corpus.py.")
         }
         let rows = try loadCorpus(at: corpusPath)
         XCTAssertFalse(rows.isEmpty)
@@ -946,7 +954,7 @@ class MixedScriptKeyHandlerTests: XCTestCase {
     /// R5: a rule-A run has a single candidate. Tab-cycling over it is not a
     /// choice between Chinese and English and must not touch latin-user.txt.
     ///
-    /// P3 (see ~/.claude/plans/zhuyin-ime-personal.md's F3 scope) gives Tab
+    /// P3 (see the design notes' F3 scope) gives Tab
     /// a new, deliberate job on a pending rule-A run -- completing it into
     /// a longer dictionary word -- but P3 fix #3 also gives it a deliberate
     /// *non*-job here: "acer" is tech-seed ranked ahead of every longer
@@ -973,7 +981,7 @@ class MixedScriptKeyHandlerTests: XCTestCase {
         XCTAssertEqual(after, before, "Tab over a rule-A run must not remember the word")
     }
 
-    /// P3 fix #3 (see ~/.claude/plans/zhuyin-ime-personal.md's P3 fix #3
+    /// P3 fix #3 (see the design notes' P3 fix #3
     /// and KeyHandler's _offeredCompletionFor:lexicon:): Tab must not silently
     /// grow an already-finished word into a longer dictionary entry just
     /// because one happens to share its prefix. Companion to
