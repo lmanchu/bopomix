@@ -260,3 +260,4 @@
 "You can run a script to use git to backup your phrases. The script will run in the folder of your user phrases folder." = "You can run a script to use git to backup your phrases. The script will run in the folder of your user phrases folder.";
 
 "Quick Text Transform" = "Quick Text Transform";
+"Bopomix could not import your McBopomofo user phrases yet (%@). It will try again the next time it starts." = "Bopomix could not import your McBopomofo user phrases yet (%@). It will try again the next time it starts.";

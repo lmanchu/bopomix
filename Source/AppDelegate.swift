@@ -24,6 +24,7 @@
 import Cocoa
 import FSEventStreamHelper
 import InputMethodKit
+import NotifierUI
 
 private let kCheckUpdateAutomatically = "CheckUpdateAutomatically"
 private let kNextUpdateCheckDateKey = "NextUpdateCheckDate"
@@ -222,7 +223,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
 
         enableBopomofoFontAnnotationSupportMenuItemIfRelevantFontsInstalled()
 
+        reportPendingLegacyMigrationNotice()
+
         checkForUpdate()
+    }
+
+    /// Tells the user, once, that the import from McBopomofo has not
+    /// happened yet and will be retried.
+    ///
+    /// `LegacyMigration` runs from `main.swift`, before `NSApp.run()`,
+    /// where showing anything is not safe -- so it leaves the message here
+    /// and this picks it up at the first moment there is a UI. Silent on
+    /// success, and silent under XCTest, where the migration never ran.
+    private func reportPendingLegacyMigrationNotice() {
+        if Preferences.isRunningUnderXCTest {
+            return
+        }
+        guard let reason = LegacyMigration.pendingUserNotice else {
+            return
+        }
+        LegacyMigration.pendingUserNotice = nil
+        NotifierController.notify(
+            message: String(
+                format: NSLocalizedString(
+                    "Bopomix could not import your McBopomofo user phrases yet (%@). It will try again the next time it starts.",
+                    comment: ""), reason), stay: true)
     }
 
     @MainActor
