@@ -109,6 +109,15 @@ running** (roughly 40 seconds). The sandbox restores the *whole* domain
 to the snapshot it took when the suite started, so anything you toggle
 in the middle is rolled back with it.
 
+**A swift-testing suite restores through `PreferenceSandbox.restore(key:)`,
+never through a value it read in `init()`.** `.serialized` orders the
+tests inside one suite; swift-testing still runs different suites
+concurrently, so a value read in `init()` can be one another suite just
+wrote, and writing it back in `deinit` resurrects a key that suite had
+correctly removed. `PreferenceSandbox`'s snapshot is shared and taken
+once, before any suite writes, which is the only reading that means
+"what this machine had before the tests".
+
 Verify all of it with:
 
 ```bash
