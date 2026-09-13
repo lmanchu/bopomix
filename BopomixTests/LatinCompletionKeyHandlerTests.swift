@@ -60,7 +60,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     override func setUpWithError() throws {
         // Must come before the first Preferences write: every assignment
         // below goes straight into the real
-        // io.github.lmanchu.bopomix defaults domain, and this
+        // io.github.lmanchu.inputmethod.bopomix defaults domain, and this
         // is the only thing that puts it back -- including removing keys
         // the assignments *created* on a machine that never had them, and
         // including when a test below fails part-way through (see
@@ -1154,7 +1154,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     /// this suite's test host, so `main.swift` runs to completion before
     /// any test does -- and its `Preferences.populateDefaults()` wrote 23
     /// keys straight into the real
-    /// `io.github.lmanchu.bopomix` domain, earlier than
+    /// `io.github.lmanchu.inputmethod.bopomix` domain, earlier than
     /// `PreferenceSandbox` can snapshot it, so the sandbox restored them
     /// instead of removing them. One of them, `AddPhraseHookPath`, was
     /// left pointing into a `build/` directory on the reviewer's machine.

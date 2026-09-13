@@ -1,5 +1,5 @@
 CFBundleName = "Bopomix";
 CFBundleDisplayName = "Bopomix";
 NSHumanReadableCopyright = "Copyright © 2011-2026 Mengjuei Hsieh et al.\nBopomix modifications © 2026 Lman Chu.\nAll Rights Reserved.";
-"io.github.lmanchu.bopomix.Bopomofo" = "Bopomix";
-"io.github.lmanchu.bopomix.PlainBopomofo" = "Bopomix (Plain Bopomofo)";
+"io.github.lmanchu.inputmethod.bopomix.Bopomofo" = "Bopomix";
+"io.github.lmanchu.inputmethod.bopomix.PlainBopomofo" = "Bopomix (Plain Bopomofo)";

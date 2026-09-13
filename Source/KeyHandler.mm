@@ -47,8 +47,8 @@
 @import RomanNumbers;
 @import BopomofoBraille;
 
-InputMode InputModeBopomofo = @"io.github.lmanchu.bopomix.Bopomofo";
-InputMode InputModePlainBopomofo = @"io.github.lmanchu.bopomix.PlainBopomofo";
+InputMode InputModeBopomofo = @"io.github.lmanchu.inputmethod.bopomix.Bopomofo";
+InputMode InputModePlainBopomofo = @"io.github.lmanchu.inputmethod.bopomix.PlainBopomofo";
 
 // P3 English prediction + Tab completion (see
 // ~/.claude/plans/zhuyin-ime-personal.md's F3 scope). The synthetic

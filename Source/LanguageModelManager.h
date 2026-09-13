@@ -87,7 +87,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// When non-nil, +dataFolderPath returns this instead of consulting
 /// Preferences at all -- which is the point: `UseCustomUserPhraseLocation`
 /// / `CustomUserPhraseLocation` are keys in the real
-/// `io.github.lmanchu.bopomix` domain, shared by every
+/// `io.github.lmanchu.inputmethod.bopomix` domain, shared by every
 /// process on the machine, so a test that redirected its user-data folder
 /// by writing them was redirecting the *installed* input method too, and
 /// was one lost race away from having its own writes land in the real

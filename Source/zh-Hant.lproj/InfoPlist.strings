@@ -1,5 +1,5 @@
 CFBundleName = "混打注音";
 CFBundleDisplayName = "混打注音";
 NSHumanReadableCopyright = "Copyright © 2011-2026 Mengjuei Hsieh et al.\nBopomix modifications © 2026 Lman Chu.\nAll Rights Reserved.";
-"io.github.lmanchu.bopomix.Bopomofo" = "混打注音";
-"io.github.lmanchu.bopomix.PlainBopomofo" = "混打注音（傳統）";
+"io.github.lmanchu.inputmethod.bopomix.Bopomofo" = "混打注音";
+"io.github.lmanchu.inputmethod.bopomix.PlainBopomofo" = "混打注音（傳統）";

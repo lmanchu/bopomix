@@ -24,7 +24,7 @@
 	<dict>
 		<key>tsInputModeListKey</key>
 		<dict>
-			<key>io.github.lmanchu.bopomix.Bopomofo</key>
+			<key>io.github.lmanchu.inputmethod.bopomix.Bopomofo</key>
 			<dict>
 				<key>TISDoubleSpaceSubstitution</key>
 				<string>。</string>
@@ -52,7 +52,7 @@
 				<key>tsInputModeScriptKey</key>
 				<string>smTradChinese</string>
 			</dict>
-			<key>io.github.lmanchu.bopomix.PlainBopomofo</key>
+			<key>io.github.lmanchu.inputmethod.bopomix.PlainBopomofo</key>
 			<dict>
 				<key>TISDoubleSpaceSubstitution</key>
 				<string>。</string>
@@ -83,8 +83,8 @@
 		</dict>
 		<key>tsVisibleInputModeOrderedArrayKey</key>
 		<array>
-			<string>io.github.lmanchu.bopomix.Bopomofo</string>
-			<string>io.github.lmanchu.bopomix.PlainBopomofo</string>
+			<string>io.github.lmanchu.inputmethod.bopomix.Bopomofo</string>
+			<string>io.github.lmanchu.inputmethod.bopomix.PlainBopomofo</string>
 		</array>
 	</dict>
 	<key>InputMethodConnectionName</key>
@@ -320,7 +320,7 @@
 	<key>TICapsLockLanguageSwitchCapable</key>
 	<true/>
 	<key>TISInputSourceID</key>
-	<string>io.github.lmanchu.bopomix</string>
+	<string>io.github.lmanchu.inputmethod.bopomix</string>
 	<key>TISIntendedLanguage</key>
 	<string>zh-Hant</string>
 	<key>TISParticipatesInTouchBar</key>

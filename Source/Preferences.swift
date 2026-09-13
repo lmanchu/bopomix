@@ -262,7 +262,7 @@ class Preferences: NSObject {
     /// The Bopomix app bundle *is* the XCTest host, so `main.swift`
     /// runs in full before a single test does -- including
     /// `populateDefaults()`, which unconditionally wrote 23 keys into the
-    /// real `io.github.lmanchu.bopomix` domain. Those writes
+    /// real `io.github.lmanchu.inputmethod.bopomix` domain. Those writes
     /// happen before `PreferenceSandbox` can take its snapshot, so they
     /// are restored rather than removed, and one of them (a build-tree
     /// `AddPhraseHookPath`) outlived the build directory it pointed at
@@ -361,7 +361,7 @@ class Preferences: NSObject {
     // MARK: P1 zh/en mixed typing (see zhuyin-ime-personal.md)
 
     /// Master switch for zh/en mixed typing. Opt-in for now (P1):
-    /// `defaults write io.github.lmanchu.bopomix
+    /// `defaults write io.github.lmanchu.inputmethod.bopomix
     /// MixedScriptEnabled -bool true`. Off, every mixedScript code path
     /// short-circuits and the input method behaves exactly like upstream
     /// McBopomofo.

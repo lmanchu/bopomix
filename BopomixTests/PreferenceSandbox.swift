@@ -29,7 +29,7 @@ import XCTest
 /// suite (docs/REVIEW-P3-2026-09-11.md's N4).
 ///
 /// Every `Preferences.foo = ...` writes straight through to the real
-/// `io.github.lmanchu.bopomix` defaults domain -- the same
+/// `io.github.lmanchu.inputmethod.bopomix` defaults domain -- the same
 /// file the installed input method reads (`UserDefault`'s setter is an
 /// unconditional `UserDefaults.standard.set`). The per-property
 /// save-in-setUp / restore-in-tearDown pattern the KeyHandler test classes
@@ -61,7 +61,7 @@ enum PreferenceSandbox {
     /// `UserDefaults.standard`, which for the Bopomix test host is
     /// this domain.
     private static var domainName: String {
-        Bundle.main.bundleIdentifier ?? "io.github.lmanchu.bopomix"
+        Bundle.main.bundleIdentifier ?? "io.github.lmanchu.inputmethod.bopomix"
     }
 
     /// Captured once, the first time any test installs the sandbox, and

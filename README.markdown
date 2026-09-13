@@ -7,14 +7,14 @@
 要 dogfood 請自己打開：
 
 ```sh
-defaults write io.github.lmanchu.bopomix MixedScriptEnabled -bool true
+defaults write io.github.lmanchu.inputmethod.bopomix MixedScriptEnabled -bool true
 # 關掉：
-defaults write io.github.lmanchu.bopomix MixedScriptEnabled -bool false
+defaults write io.github.lmanchu.inputmethod.bopomix MixedScriptEnabled -bool false
 ```
 
 ⚠️ 2026-09-10 之前的建置預設是**開啟**的，而且 `Preferences.populateDefaults()`
 會把預設值寫進 plist —— 也就是說裝過舊版的機器即使升級也還是開著。這種機器要
-先跑一次 `defaults delete io.github.lmanchu.bopomix MixedScriptEnabled`
+先跑一次 `defaults delete io.github.lmanchu.inputmethod.bopomix MixedScriptEnabled`
 才會回到「預設關閉」。
 
 關閉時所有 mixedScript 的程式路徑都會短路，行為與上游 McBopomofo 完全相同
@@ -65,7 +65,7 @@ defaults write io.github.lmanchu.bopomix MixedScriptEnabled -bool false
   `MixedScriptEnabled` 也開著才會生效）：
 
   ```sh
-  defaults write io.github.lmanchu.bopomix LatinCompletionEnabled -bool false
+  defaults write io.github.lmanchu.inputmethod.bopomix LatinCompletionEnabled -bool false
   ```
 
 - 基礎詞典（`Source/Data/latin-words.txt`）本體與常用度分級 2026-09-11 起
@@ -85,7 +85,7 @@ defaults write io.github.lmanchu.bopomix MixedScriptEnabled -bool false
   功能記錄；寫入的檔案一樣是本機的 `latin-user.txt`，關掉不想被記錄：
 
   ```sh
-  defaults write io.github.lmanchu.bopomix LatinLearnTypedWords -bool false
+  defaults write io.github.lmanchu.inputmethod.bopomix LatinLearnTypedWords -bool false
   ```
 
   **打一次記一次，打兩次才算數。** 每次提交只加 1 分，要到 2 分才會影響排序；

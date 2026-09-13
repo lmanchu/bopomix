@@ -6,7 +6,7 @@
 #
 # The XCTest target runs inside the real Bopomix app host and
 # Preferences writes straight through to the live
-# io.github.lmanchu.bopomix defaults domain -- the same file
+# io.github.lmanchu.inputmethod.bopomix defaults domain -- the same file
 # the *installed* input method reads. A test that set a $TMPDIR path as
 # CustomUserPhraseLocation and did not put it back once left the author's
 # installed IME writing learned phrases into a folder macOS deletes.
@@ -38,7 +38,7 @@
 
 set -u
 
-DOMAIN="io.github.lmanchu.bopomix"
+DOMAIN="io.github.lmanchu.inputmethod.bopomix"
 DATA_FOLDER="${HOME}/Library/Application Support/Bopomix"
 WORKDIR="$(mktemp -d -t bopomix-plist-guard)"
 BEFORE="${WORKDIR}/before.plist"

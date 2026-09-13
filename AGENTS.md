@@ -25,6 +25,14 @@ The project contains these main **targets**:
 - `Data`: Dictionary data generation
 - `BopomixTests`: Swift test suite
 
+**Bundle identifier:** `io.github.lmanchu.inputmethod.bopomix`. The `inputmethod` component is not
+decoration: macOS Text Input Sources silently ignores `TISRegisterInputSource` for an input
+method whose bundle identifier has no `inputmethod` component (verified on macOS 26.6 on
+2026-09-13 -- `io.github.lmanchu.bopomix` registered "successfully" and never appeared in the
+input source list; adding the component fixed it with no other change). The two input-mode keys
+in `Source/Bopomix-Info.plist`, `Source/KeyHandler.mm`, every `InfoPlist.strings`, and
+`tools/eval/check_plist_unchanged.sh` must all carry the same prefix.
+
 **Build configurations:** Debug, Release (default when building from command line)
 
 **Available schemes:** Bopomix, BopomixInstaller, Data, plus individual schemes for local packages (BopomofoBraille, CandidateUI, ChineseNumbers, FSEventStreamHelper, InputSourceHelper, NotifierUI, NSStringUtils, OpenCCBridge, SystemCharacterInfo, TooltipUI)
@@ -63,7 +71,7 @@ and will report failures that have nothing to do with your change.**
 
 The reason is not fixable from inside a test: `Preferences` reads and
 writes `UserDefaults.standard`, i.e. the real
-`io.github.lmanchu.bopomix` domain, which is one per-user
+`io.github.lmanchu.inputmethod.bopomix` domain, which is one per-user
 file shared by *every* parallel test-runner process. `PreferencesTests`
 removes every key in that domain in its initializer and asserts on
 default values, while the KeyHandler suites are simultaneously setting
