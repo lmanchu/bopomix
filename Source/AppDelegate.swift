@@ -245,19 +245,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
             return
         }
 
+        // Every path out of here writes kNextUpdateCheckDateKey below,
+        // forced or not. This bundle is also the XCTest host, so the
+        // launch-time call lands that write in the real domain before any
+        // test runs (and so before PreferenceSandbox's snapshot) -- see
+        // Preferences.isRunningUnderXCTest and main.swift's
+        // populateDefaults() gate. Gating the whole function rather than
+        // just the automatic branch keeps that true for a future test of
+        // the menu action, which would have no teardown block to clean up
+        // after it if it were swift-testing. VersionUpdateTests calls
+        // VersionUpdateApi.check(forced:) directly and never comes here.
+        if Preferences.isRunningUnderXCTest {
+            return
+        }
+
         // time for update?
         if !forced {
-            // The automatic check writes kNextUpdateCheckDateKey below.
-            // This bundle is also the XCTest host, so the launch-time
-            // call lands that write in the real domain before any test
-            // runs (and so before PreferenceSandbox's snapshot) --
-            // see Preferences.isRunningUnderXCTest and main.swift's
-            // populateDefaults() gate. A forced check, including
-            // VersionUpdateTests' direct VersionUpdateApi.check(forced:),
-            // is unaffected.
-            if Preferences.isRunningUnderXCTest {
-                return
-            }
             if UserDefaults.standard.bool(forKey: kCheckUpdateAutomatically) == false {
                 return
             }

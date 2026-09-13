@@ -51,6 +51,11 @@ final class PreferencesTests {
     var snapshot: [String: Any]?
 
     init() async throws {
+        // Before `reset()` empties the domain: PreferenceSandbox's shared
+        // snapshot is taken by whichever suite starts first, and if that
+        // were this one *after* the wipe, the XCTest teardown would
+        // "restore" a machine's real settings to nothing.
+        PreferenceSandbox.captureNow()
         snapshot = makeSnapshot()
         reset()
     }

@@ -76,6 +76,11 @@ enum PreferenceSandbox {
     /// anyway.
     private static var processStartSnapshot: [String: Any]??
 
+    /// Guards `processStartSnapshot`. swift-testing runs `@Test` functions
+    /// in parallel with a fresh suite instance each, so `captureNow()` and
+    /// `restore(key:)` are reachable from several threads at once.
+    private static let snapshotLock = NSLock()
+
     /// Captures the snapshot on first call and returns it thereafter.
     ///
     /// Every suite that writes a preference calls this before its first
@@ -85,6 +90,8 @@ enum PreferenceSandbox {
     /// rest share that reading.
     @discardableResult
     private static func snapshot() -> [String: Any]? {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
         if processStartSnapshot == nil {
             processStartSnapshot = .some(
                 UserDefaults.standard.persistentDomain(forName: domainName))
@@ -117,7 +124,7 @@ enum PreferenceSandbox {
         let name = domainName
         snapshot()
         testCase.addTeardownBlock {
-            guard let outer = processStartSnapshot, let saved = outer else {
+            guard let saved = snapshot() else {
                 // The domain did not exist when this process started, so
                 // there are no real settings here to lose -- and every key
                 // in it now was written by this test process. The app

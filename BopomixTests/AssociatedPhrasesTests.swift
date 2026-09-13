@@ -25,12 +25,15 @@ import Testing
 
 @testable import Bopomix
 
-@Suite("Associated Phrases Testing")
+@Suite("Associated Phrases Testing", .serialized)
 final class AssociatedPhrasesTests {
 
     var handler = KeyHandler()
 
-    /// The key name `Preferences.chineseConversionEnabled` is stored under.
+    /// The key name `Preferences.chineseConversionEnabled` is stored
+    /// under. Duplicated from `kChineseConversionEnabledKey`
+    /// (Preferences.swift), which is file-private; widening that just for
+    /// a test is the worse trade, so keep the two in step by hand.
     private let chineseConversionKey = "ChineseConversionEnabled"
 
     init() async throws {

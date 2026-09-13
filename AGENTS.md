@@ -100,8 +100,15 @@ and clear it in a teardown block; never write
 `UseCustomUserPhraseLocation` / `CustomUserPhraseLocation` from a test.
 Note also that the test host is the Bopomix app itself, so
 `main.swift` runs before any test does; its `Preferences.populateDefaults()`
-is skipped under XCTest (`Preferences.isRunningUnderXCTest`) because
-those writes land earlier than `PreferenceSandbox` can snapshot them.
+is skipped under XCTest (`Preferences.isRunningUnderXCTest`), as are
+`AppDelegate`'s launch-time writes, because those land earlier than
+`PreferenceSandbox` can snapshot them.
+
+**Do not change preferences in an installed Bopomix while the suite is
+running** (roughly 40 seconds). The sandbox restores the *whole* domain
+to the snapshot it took when the suite started, so anything you toggle
+in the middle is rolled back with it.
+
 Verify all of it with:
 
 ```bash
