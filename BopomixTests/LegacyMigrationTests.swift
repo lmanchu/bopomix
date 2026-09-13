@@ -75,7 +75,8 @@ final class LegacyMigrationTests: XCTestCase {
     /// put two live input methods on one user-phrase folder.
     func testNeverMigratesBlacklistedKeys() {
         let legacy: [String: Any] = [
-            LegacyMigration.markerKey: true,
+            LegacyMigration.prefsMarkerKey: true,
+            LegacyMigration.userDataMarkerKey: true,
             "UseCustomUserPhraseLocation": true,
             "CustomUserPhraseLocation": "/Users/someone/Dropbox/McBopomofo",
             "AddPhraseHookPath": "/Applications/McBopomofo.app/Contents/Resources/hook.sh",
@@ -92,6 +93,14 @@ final class LegacyMigrationTests: XCTestCase {
 
     // MARK: - legacyUserDataFolder
 
+    /// `URL.appendingPathComponent` appends a trailing slash when the path
+    /// already exists as a directory, so two URLs naming the same folder
+    /// are not `==`. Compare the paths.
+    private func folderPath(_ source: LegacyMigration.LegacyUserDataSource) -> String? {
+        guard case .folder(let url) = source else { return nil }
+        return url.path
+    }
+
     func testUsesCustomLegacyFolderWhenTheFlagIsOnAndItExists() throws {
         let custom = sandbox.appendingPathComponent("Dropbox-McBopomofo")
         try FileManager.default.createDirectory(at: custom, withIntermediateDirectories: true)
@@ -103,18 +112,20 @@ final class LegacyMigrationTests: XCTestCase {
             ],
             defaultLegacyFolder: fallback)
 
-        XCTAssertEqual(resolved.path, custom.path)
+        XCTAssertEqual(folderPath(resolved), custom.path)
     }
 
-    func testFallsBackWhenTheCustomLegacyFolderDoesNotExist() {
+    func testReportsUnavailableWhenTheCustomLegacyFolderDoesNotExist() {
         let fallback = sandbox.appendingPathComponent("McBopomofo")
+        let missing = sandbox.appendingPathComponent("gone").path
         let resolved = LegacyMigration.legacyUserDataFolder(
             legacyPreferences: [
-                "UseCustomUserPhraseLocation": true,
-                "CustomUserPhraseLocation": sandbox.appendingPathComponent("gone").path,
+                "UseCustomUserPhraseLocation": true, "CustomUserPhraseLocation": missing,
             ],
             defaultLegacyFolder: fallback)
-        XCTAssertEqual(resolved.path, fallback.path)
+        // Not the default folder: an unmounted volume must read as "come
+        // back later", not as "this user has no data".
+        XCTAssertEqual(resolved, .customLocationUnavailable(missing))
     }
 
     func testFallsBackWhenTheCustomLocationFlagIsOff() throws {
@@ -128,7 +139,7 @@ final class LegacyMigrationTests: XCTestCase {
             ],
             defaultLegacyFolder: fallback)
 
-        XCTAssertEqual(resolved.path, fallback.path)
+        XCTAssertEqual(folderPath(resolved), fallback.path)
     }
 
     // MARK: - copyUserData
@@ -140,9 +151,9 @@ final class LegacyMigrationTests: XCTestCase {
         let legacyFile = legacyFolder.appendingPathComponent("data.txt")
         try "小麥 ㄒㄧㄠˇ-ㄇㄞˋ\n".write(to: legacyFile, atomically: true, encoding: .utf8)
 
-        let copied = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
 
-        XCTAssertTrue(copied)
+        XCTAssertEqual(outcome, .copied)
         let copiedFile = newFolder.appendingPathComponent("data.txt")
         XCTAssertEqual(try String(contentsOf: copiedFile, encoding: .utf8), "小麥 ㄒㄧㄠˇ-ㄇㄞˋ\n")
         // The original must be left exactly as it was: the input method
@@ -162,9 +173,9 @@ final class LegacyMigrationTests: XCTestCase {
         try "mine\n".write(
             to: newFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
 
-        let copied = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
 
-        XCTAssertFalse(copied)
+        XCTAssertEqual(outcome, .notNeeded)
         XCTAssertEqual(
             try String(contentsOf: newFolder.appendingPathComponent("data.txt"), encoding: .utf8),
             "mine\n")
@@ -174,9 +185,9 @@ final class LegacyMigrationTests: XCTestCase {
         let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
         let newFolder = sandbox.appendingPathComponent("Bopomix")
 
-        let copied = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
 
-        XCTAssertFalse(copied)
+        XCTAssertEqual(outcome, .notNeeded)
         XCTAssertFalse(FileManager.default.fileExists(atPath: newFolder.path))
     }
 
@@ -193,9 +204,9 @@ final class LegacyMigrationTests: XCTestCase {
         try FileManager.default.createSymbolicLink(at: legacyFolder, withDestinationURL: realStore)
         let newFolder = sandbox.appendingPathComponent("Bopomix")
 
-        let copied = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
 
-        XCTAssertTrue(copied)
+        XCTAssertEqual(outcome, .copied)
         let attributes = try FileManager.default.attributesOfItem(atPath: newFolder.path)
         XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeDirectory)
         XCTAssertNotEqual(attributes[.type] as? FileAttributeType, .typeSymbolicLink)
@@ -229,9 +240,9 @@ final class LegacyMigrationTests: XCTestCase {
             at: legacyFolder.appendingPathComponent("data.txt"), withDestinationURL: elsewhere)
         let newFolder = sandbox.appendingPathComponent("Bopomix")
 
-        let copied = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
 
-        XCTAssertTrue(copied)
+        XCTAssertEqual(outcome, .copied)
         let copiedFile = newFolder.appendingPathComponent("data.txt")
         XCTAssertEqual(
             try FileManager.default.attributesOfItem(atPath: copiedFile.path)[.type]
@@ -250,12 +261,220 @@ final class LegacyMigrationTests: XCTestCase {
             to: legacyFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
         let newFolder = sandbox.appendingPathComponent("Bopomix")
 
-        let copied = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
 
-        XCTAssertTrue(copied)
+        XCTAssertEqual(outcome, .copied)
         XCTAssertEqual(
             try FileManager.default.contentsOfDirectory(atPath: newFolder.path), ["data.txt"])
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: newFolder.appendingPathComponent("nested").path))
+    }
+
+    // MARK: - copyUserData, defensive paths
+
+    func testRefusesWhenTheNewPathIsADanglingSymlink() throws {
+        let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
+        try FileManager.default.createDirectory(at: legacyFolder, withIntermediateDirectories: true)
+        try "legacy\n".write(
+            to: legacyFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+        let newFolder = sandbox.appendingPathComponent("Bopomix")
+        let nowhere = sandbox.appendingPathComponent("nowhere")
+        try FileManager.default.createSymbolicLink(at: newFolder, withDestinationURL: nowhere)
+
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+
+        XCTAssertEqual(outcome, .failed)
+        // Still a symlink, still dangling: nothing was written through it.
+        XCTAssertEqual(
+            try FileManager.default.attributesOfItem(atPath: newFolder.path)[.type]
+                as? FileAttributeType, .typeSymbolicLink)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: nowhere.path))
+    }
+
+    func testCopiesIntoAnExistingEmptyDirectory() throws {
+        let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
+        try FileManager.default.createDirectory(at: legacyFolder, withIntermediateDirectories: true)
+        try "legacy\n".write(
+            to: legacyFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+        let newFolder = sandbox.appendingPathComponent("Bopomix")
+        try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+
+        XCTAssertEqual(outcome, .copied)
+        XCTAssertEqual(
+            try String(contentsOf: newFolder.appendingPathComponent("data.txt"), encoding: .utf8),
+            "legacy\n")
+    }
+
+    func testFailsAndLeavesNoNewFolderWhenTheLegacyFolderCannotBeRead() throws {
+        let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
+        try FileManager.default.createDirectory(at: legacyFolder, withIntermediateDirectories: true)
+        try "legacy\n".write(
+            to: legacyFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: legacyFolder.path)
+        addTeardownBlock {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: legacyFolder.path)
+        }
+        let newFolder = sandbox.appendingPathComponent("Bopomix")
+
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+
+        XCTAssertEqual(outcome, .failed)
+        // The empty folder a failed attempt used to leave behind is what
+        // made every later attempt report "already has data".
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newFolder.path))
+    }
+
+    // MARK: - legacyUserDataFolder, remaining cases
+
+    func testReportsUnavailableWhenTheCustomLegacyPathIsAFile() throws {
+        let file = sandbox.appendingPathComponent("not-a-folder.txt")
+        try "x\n".write(to: file, atomically: true, encoding: .utf8)
+        let fallback = sandbox.appendingPathComponent("McBopomofo")
+
+        let resolved = LegacyMigration.legacyUserDataFolder(
+            legacyPreferences: [
+                "UseCustomUserPhraseLocation": true, "CustomUserPhraseLocation": file.path,
+            ],
+            defaultLegacyFolder: fallback)
+
+        XCTAssertEqual(resolved, .customLocationUnavailable(file.path))
+    }
+
+    func testFallsBackWhenTheCustomLegacyPathIsAnEmptyString() {
+        let fallback = sandbox.appendingPathComponent("McBopomofo")
+        let resolved = LegacyMigration.legacyUserDataFolder(
+            legacyPreferences: [
+                "UseCustomUserPhraseLocation": true, "CustomUserPhraseLocation": "",
+            ],
+            defaultLegacyFolder: fallback)
+        XCTAssertEqual(folderPath(resolved), fallback.path)
+    }
+
+    // MARK: - run, the marker rules
+
+    /// Makes a legacy folder holding one file, and returns
+    /// (legacyDefaultFolder, newFolder).
+    private func makeLegacyFolder(contents: String = "legacy\n") throws -> (URL, URL) {
+        let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
+        try FileManager.default.createDirectory(at: legacyFolder, withIntermediateDirectories: true)
+        try contents.write(
+            to: legacyFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+        return (legacyFolder, sandbox.appendingPathComponent("Bopomix"))
+    }
+
+    func testRunSetsBothMarkersWhenTheCopySucceeds() throws {
+        let (legacyFolder, newFolder) = try makeLegacyFolder()
+
+        let result = LegacyMigration.run(
+            legacyPreferences: ["KeyboardLayout": 2], currentPreferences: [:],
+            legacyDefaultFolder: legacyFolder, newFolder: newFolder,
+            prefsAlreadyMigrated: false, userDataAlreadyMigrated: false)
+
+        XCTAssertEqual(result.userDataOutcome, .copied)
+        XCTAssertTrue(result.setPrefsMarker)
+        XCTAssertTrue(result.setUserDataMarker)
+        XCTAssertEqual(result.preferencesToWrite["KeyboardLayout"] as? Int, 2)
+    }
+
+    func testRunSetsBothMarkersWhenThereIsNothingToCopy() {
+        let result = LegacyMigration.run(
+            legacyPreferences: [:], currentPreferences: [:],
+            legacyDefaultFolder: sandbox.appendingPathComponent("McBopomofo"),
+            newFolder: sandbox.appendingPathComponent("Bopomix"),
+            prefsAlreadyMigrated: false, userDataAlreadyMigrated: false)
+
+        XCTAssertEqual(result.userDataOutcome, .notNeeded)
+        XCTAssertTrue(result.setPrefsMarker)
+        XCTAssertTrue(result.setUserDataMarker)
+    }
+
+    /// The blocking case: a failed copy must leave the user-data marker
+    /// unset so the next launch retries, while the preference half -- which
+    /// did succeed -- is recorded.
+    func testRunWithholdsTheUserDataMarkerWhenTheCopyFails() throws {
+        let (legacyFolder, newFolder) = try makeLegacyFolder()
+        try FileManager.default.createSymbolicLink(
+            at: newFolder, withDestinationURL: sandbox.appendingPathComponent("nowhere"))
+
+        let result = LegacyMigration.run(
+            legacyPreferences: ["KeyboardLayout": 2], currentPreferences: [:],
+            legacyDefaultFolder: legacyFolder, newFolder: newFolder,
+            prefsAlreadyMigrated: false, userDataAlreadyMigrated: false)
+
+        XCTAssertEqual(result.userDataOutcome, .failed)
+        XCTAssertTrue(result.setPrefsMarker)
+        XCTAssertFalse(result.setUserDataMarker)
+    }
+
+    func testRunWithholdsTheUserDataMarkerWhenTheCustomLocationIsUnavailable() throws {
+        let (legacyFolder, newFolder) = try makeLegacyFolder()
+        let missing = sandbox.appendingPathComponent("unmounted-volume").path
+
+        let result = LegacyMigration.run(
+            legacyPreferences: [
+                "UseCustomUserPhraseLocation": true, "CustomUserPhraseLocation": missing,
+            ],
+            currentPreferences: [:],
+            legacyDefaultFolder: legacyFolder, newFolder: newFolder,
+            prefsAlreadyMigrated: false, userDataAlreadyMigrated: false)
+
+        XCTAssertEqual(result.userDataOutcome, .customLocationUnavailable(missing))
+        XCTAssertTrue(result.setPrefsMarker)
+        XCTAssertFalse(result.setUserDataMarker)
+        // Crucially it did *not* quietly copy the default legacy folder.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newFolder.path))
+    }
+
+    func testRunLeavesTheFoldersAloneOnceTheUserDataMarkerIsSet() throws {
+        let (legacyFolder, newFolder) = try makeLegacyFolder()
+
+        let result = LegacyMigration.run(
+            legacyPreferences: ["KeyboardLayout": 2], currentPreferences: [:],
+            legacyDefaultFolder: legacyFolder, newFolder: newFolder,
+            prefsAlreadyMigrated: false, userDataAlreadyMigrated: true)
+
+        XCTAssertEqual(result.userDataOutcome, .skipped("user data marker already set"))
+        XCTAssertTrue(result.setPrefsMarker)
+        XCTAssertFalse(result.setUserDataMarker)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newFolder.path))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: legacyFolder.path), ["data.txt"])
+    }
+
+    func testRunSkipsThePreferenceHalfOnceItsMarkerIsSet() throws {
+        let (legacyFolder, newFolder) = try makeLegacyFolder()
+
+        let result = LegacyMigration.run(
+            legacyPreferences: ["KeyboardLayout": 2], currentPreferences: [:],
+            legacyDefaultFolder: legacyFolder, newFolder: newFolder,
+            prefsAlreadyMigrated: true, userDataAlreadyMigrated: false)
+
+        XCTAssertTrue(result.preferencesToWrite.isEmpty)
+        XCTAssertFalse(result.setPrefsMarker)
+        XCTAssertEqual(result.userDataOutcome, .copied)
+        XCTAssertTrue(result.setUserDataMarker)
+    }
+
+    // MARK: - AddPhraseHookPath, filtered on its value
+
+    func testDropsAddPhraseHookPathPointingIntoTheLegacyBundle() {
+        let result = LegacyMigration.preferencesToMigrate(
+            legacy: [
+                "AddPhraseHookPath":
+                    "/Library/Input Methods/McBopomofo.app/Contents/Resources/add-phrase-hook.sh"
+            ],
+            current: [:])
+        XCTAssertNil(result["AddPhraseHookPath"])
+    }
+
+    func testMigratesAnAddPhraseHookPathTheUserChose() {
+        let result = LegacyMigration.preferencesToMigrate(
+            legacy: ["AddPhraseHookPath": "/Users/someone/bin/commit-phrase.sh"], current: [:])
+        XCTAssertEqual(
+            result["AddPhraseHookPath"] as? String, "/Users/someone/bin/commit-phrase.sh")
     }
 }
