@@ -360,12 +360,12 @@ class Preferences: NSObject {
 
     // MARK: P1 zh/en mixed typing (see the design notes)
 
-    /// Master switch for zh/en mixed typing. Opt-in for now (P1):
-    /// `defaults write io.github.lmanchu.inputmethod.bopomix
-    /// MixedScriptEnabled -bool true`. Off, every mixedScript code path
-    /// short-circuits and the input method behaves exactly like upstream
-    /// McBopomofo.
-    @UserDefault(key: kMixedScriptEnabledKey, defaultValue: false)
+    /// Master switch for zh/en mixed typing. On by default -- it is what
+    /// Bopomix is for; `defaults write io.github.lmanchu.inputmethod.bopomix
+    /// MixedScriptEnabled -bool false` turns it off. Off, every mixedScript
+    /// code path short-circuits and the input method behaves exactly like
+    /// upstream McBopomofo.
+    @UserDefault(key: kMixedScriptEnabledKey, defaultValue: true)
     @objc static var mixedScriptEnabled: Bool
 
     /// Whether a run that is a word in the user's *own* Latin lexicon
