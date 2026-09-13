@@ -1,4 +1,4 @@
-# OpenVanilla McBopomofo 小麥注音輸入法
+# Bopomix 混打注音輸入法（fork of OpenVanilla McBopomofo 小麥注音）
 
 ## mixime：中英混打（P1，預設關閉）
 
@@ -7,14 +7,14 @@
 要 dogfood 請自己打開：
 
 ```sh
-defaults write org.openvanilla.inputmethod.McBopomofo MixedScriptEnabled -bool true
+defaults write io.github.lmanchu.bopomix MixedScriptEnabled -bool true
 # 關掉：
-defaults write org.openvanilla.inputmethod.McBopomofo MixedScriptEnabled -bool false
+defaults write io.github.lmanchu.bopomix MixedScriptEnabled -bool false
 ```
 
 ⚠️ 2026-09-10 之前的建置預設是**開啟**的，而且 `Preferences.populateDefaults()`
 會把預設值寫進 plist —— 也就是說裝過舊版的機器即使升級也還是開著。這種機器要
-先跑一次 `defaults delete org.openvanilla.inputmethod.McBopomofo MixedScriptEnabled`
+先跑一次 `defaults delete io.github.lmanchu.bopomix MixedScriptEnabled`
 才會回到「預設關閉」。
 
 關閉時所有 mixedScript 的程式路徑都會短路，行為與上游 McBopomofo 完全相同
@@ -65,7 +65,7 @@ defaults write org.openvanilla.inputmethod.McBopomofo MixedScriptEnabled -bool f
   `MixedScriptEnabled` 也開著才會生效）：
 
   ```sh
-  defaults write org.openvanilla.inputmethod.McBopomofo LatinCompletionEnabled -bool false
+  defaults write io.github.lmanchu.bopomix LatinCompletionEnabled -bool false
   ```
 
 - 基礎詞典（`Source/Data/latin-words.txt`）本體與常用度分級 2026-09-11 起
@@ -85,7 +85,7 @@ defaults write org.openvanilla.inputmethod.McBopomofo MixedScriptEnabled -bool f
   功能記錄；寫入的檔案一樣是本機的 `latin-user.txt`，關掉不想被記錄：
 
   ```sh
-  defaults write org.openvanilla.inputmethod.McBopomofo LatinLearnTypedWords -bool false
+  defaults write io.github.lmanchu.bopomix LatinLearnTypedWords -bool false
   ```
 
   **打一次記一次，打兩次才算數。** 每次提交只加 1 分，要到 2 分才會影響排序；
@@ -103,7 +103,7 @@ defaults write org.openvanilla.inputmethod.McBopomofo MixedScriptEnabled -bool f
     那個詞的時候，下一次寫入會把它合併回檔案裡。
 
 - 使用者詞庫檔案的位置跟中文使用者詞庫同一個資料夾（預設
-  `~/Library/Application Support/McBopomofo/`，偏好設定裡改過就跟著走）。
+  `~/Library/Application Support/Bopomix/`，偏好設定裡改過就跟著走）。
   換資料夾時 Latin 詞庫會一起重新載入，寫入採「先讀現有檔案再合併」＋暫存檔
   改名落盤，所以新資料夾原本就有的 `latin-user.txt`（例如 Dropbox 從另一台
   機器同步回來的）不會被蓋掉，舊資料夾也不會被動到。
@@ -118,7 +118,7 @@ defaults write org.openvanilla.inputmethod.McBopomofo MixedScriptEnabled -bool f
 
 ## 開發流程
 
-用 Xcode 開啟 `McBopomofo.xcodeproj`，選 "McBopomofo Installer" target，build 完之後直接執行該安裝程式，就可以安裝小麥注音。
+用 Xcode 開啟 `Bopomix.xcodeproj`，選 "BopomixInstaller" target，build 完之後直接執行該安裝程式，就可以安裝小麥注音。
 
 第一次安裝完，日後程式碼或詞庫有任何修改，只要重複上述流程，再次安裝小麥注音即可。
 

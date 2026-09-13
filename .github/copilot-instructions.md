@@ -30,9 +30,9 @@ This file provides GitHub Copilot-specific coding instructions. For comprehensiv
 ## Project Context
 - Input method for macOS built with AppKit/IMKit in Swift and bridged Objective-C++, backed by the C++ language model in `Source/Engine`.
 - The app supports two Taiwanese Braille formats: Unicode and ASCII.
-- Build and run with Xcode target `McBopomofo Installer`; Swift front end pulls helper frameworks from the local `Packages/` directory.
+- Build and run with Xcode target `BopomixInstaller`; Swift front end pulls helper frameworks from the local `Packages/` directory.
 - Dictionary assets and generation scripts live in `Source/Data`; compiled blobs are stored in `Source/Data/bin`.
-- Tests cover both layers: Swift XCTest-style suites in `McBopomofoTests` and GoogleTest cases in `Source/Engine/*Test.cpp` via CMake.
+- Tests cover both layers: Swift XCTest-style suites in `BopomixTests` and GoogleTest cases in `Source/Engine/*Test.cpp` via CMake.
 - Preserve the existing MIT license banner on any new source file.
 
 ## Swift & AppKit Guidelines
@@ -51,7 +51,7 @@ This file provides GitHub Copilot-specific coding instructions. For comprehensiv
 
 ## Objective-C++ Bridge Guidelines
 - Manage engine lifetimes in `.mm` files by allocating in `init`, cleaning up in `dealloc`, and wrapping pointers in `std::shared_ptr` when passing to C++ APIs.
-- Surface new engine capabilities by extending bridge classes (`KeyHandler`, `LanguageModelManager`) and declaring them in `McBopomofo-Bridging-Header.h`.
+- Surface new engine capabilities by extending bridge classes (`KeyHandler`, `LanguageModelManager`) and declaring them in `Bopomix-Bridging-Header.h`.
 - Convert between `NSString` and `std::string` with `UTF8Helper`/`NSStringUtils`; avoid hand-written UTF conversions or raw buffers.
 - Keep bridge methods small: forward inputs to the engine and return plain values or Foundation types that Swift can consume.
 
@@ -62,7 +62,7 @@ This file provides GitHub Copilot-specific coding instructions. For comprehensiv
 - Keep algorithms deterministic and side-effect free; logging and macOS-specific behavior should stay in the Objective-C++ layer.
 
 ## Tests and Tooling
-- Add Swift tests under `McBopomofoTests` using the `Testing` module with `@Suite`, `@Test`, and `#expect` macros; snapshot and restore `UserDefaults` like `PreferencesTests`.
+- Add Swift tests under `BopomixTests` using the `Testing` module with `@Suite`, `@Test`, and `#expect` macros; snapshot and restore `UserDefaults` like `PreferencesTests`.
 - Register new engine tests in `Source/Engine/CMakeLists.txt`, include them in the `McBopomofoLMLibTest` target, and use GoogleTest assertions.
 - When dictionary data changes, regenerate artifacts via the make targets in `Source/Data` and check updated binaries into `Source/Data/bin`.
 - Keep shell scripts such as `Source/add-phrase-hook.sh` POSIX-compliant and aligned with the existing shebang and style.
@@ -86,5 +86,5 @@ This file provides GitHub Copilot-specific coding instructions. For comprehensiv
 - `Source/InputMethodController.swift`: IMK entry point coordinating candidate menus and preferences.
 - `Source/KeyHandler.mm`: Objective-C++ bridge between Swift events and the engine.
 - `Source/Engine/McBopomofoLM.cpp`: Core language model logic and unigram handling.
-- `McBopomofoTests/PreferencesTests.swift`: Example of the Swift `Testing` suite setup and patterns.
+- `BopomixTests/PreferencesTests.swift`: Example of the Swift `Testing` suite setup and patterns.
 - `Source/Engine/CMakeLists.txt`: Engine build configuration and test registration.

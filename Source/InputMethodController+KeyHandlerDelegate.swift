@@ -25,7 +25,7 @@ import CandidateUI
 import Cocoa
 import InputMethodKit
 
-extension McBopomofoInputMethodController: KeyHandlerDelegate {
+extension BopomixInputMethodController: KeyHandlerDelegate {
     func candidateController(for keyHandler: KeyHandler) -> Any {
         gCurrentCandidateController ?? .vertical
     }

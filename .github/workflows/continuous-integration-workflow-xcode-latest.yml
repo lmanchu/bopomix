@@ -40,16 +40,16 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "^26.1.1"
-      - name: Build McBopomofo Engine
+      - name: Build Bopomix Engine
         run: cmake -DENABLE_TEST=1 -S . -B build && cmake --build build -j
         working-directory: Source
-      - name: Test McBopomofo Engine
+      - name: Test Bopomix Engine
         run: ctest --output-on-failure
         working-directory: Source/build
-      - name: Build McBopomofo Engine (SIMD)
+      - name: Build Bopomix Engine (SIMD)
         run: cmake -DENABLE_TEST=1 -DENABLE_EXPERIMENTAL_SIMD_SUPPORT_NEON=1 -S . -B build-simd && cmake --build build-simd -j
         working-directory: Source
-      - name: Test McBopomofo Engine (SIMD) 
+      - name: Test Bopomix Engine (SIMD) 
         run: ctest --output-on-failure
         working-directory: Source/build-simd
       - name: Test CandidateUI
@@ -70,10 +70,10 @@ jobs:
       - name: Test RomanNumbers
         run: swift test --enable-code-coverage
         working-directory: Packages/RomanNumbers
-      - name: Test McBopomofo
-        run: xcodebuild -scheme McBopomofo -configuration Debug clean test
-      - name: Build McBopomofo and McBopomofoInstaller 
-        run: xcodebuild -scheme McBopomofoInstaller -configuration Release clean build
+      - name: Test Bopomix
+        run: xcodebuild -scheme Bopomix -configuration Debug clean test
+      - name: Build Bopomix and BopomixInstaller 
+        run: xcodebuild -scheme BopomixInstaller -configuration Release clean build
       - name: Test data files
         run: make check
         working-directory: Source/Data

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 and onwards The Mixime Authors.
+// Copyright (c) 2026 and onwards The Bopomix Authors.
 //
 // Permission is hereby granted, free of charge, to any person
 // obtaining a copy of this software and associated documentation
@@ -59,7 +59,7 @@ namespace McBopomofo::MixedScript {
 // self-correction (typing a second consonant key to replace the first,
 // without backspacing) is also flagged as "impossible" and reclassified
 // as Latin text. Given "never silently drop a keystroke" is the higher
-// priority than "never misclassify," and McBopomofo/mixime does not
+// priority than "never misclassify," and McBopomofo/bopomix does not
 // otherwise treat consecutive same-category keys as intentional
 // self-correction (there is no existing feature relying on it), showing
 // the raw letters (which the user can then see and backspace) is judged

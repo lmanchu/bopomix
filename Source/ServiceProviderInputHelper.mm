@@ -22,7 +22,7 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 
 #import "ServiceProviderInputHelper.h"
-#import "McBopomofo-Swift.h"
+#import "Bopomix-Swift.h"
 #import "McBopomofoLM.h"
 #import "Mandarin.h"
 #import "LanguageModelManager+Privates.h"

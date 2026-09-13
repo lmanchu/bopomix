@@ -14,10 +14,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "6A0D4EA115FC0D2D00ABF4B3"
-               BuildableName = "McBopomofo.app"
-               BlueprintName = "McBopomofo"
-               ReferencedContainer = "container:McBopomofo.xcodeproj">
+               BlueprintIdentifier = "6ACA41CA15FC1D7500935EF6"
+               BuildableName = "BopomixInstaller.app"
+               BlueprintName = "BopomixInstaller"
+               ReferencedContainer = "container:Bopomix.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -26,19 +26,8 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      codeCoverageEnabled = "YES">
+      shouldUseLaunchSchemeArgsEnv = "YES">
       <Testables>
-         <TestableReference
-            skipped = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "D485D3B52796A8A000657FF3"
-               BuildableName = "McBopomofoTests.xctest"
-               BlueprintName = "McBopomofoTests"
-               ReferencedContainer = "container:McBopomofo.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction
@@ -55,10 +44,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "6A0D4EA115FC0D2D00ABF4B3"
-            BuildableName = "McBopomofo.app"
-            BlueprintName = "McBopomofo"
-            ReferencedContainer = "container:McBopomofo.xcodeproj">
+            BlueprintIdentifier = "6ACA41CA15FC1D7500935EF6"
+            BuildableName = "BopomixInstaller.app"
+            BlueprintName = "BopomixInstaller"
+            ReferencedContainer = "container:Bopomix.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,10 +61,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "6A0D4EA115FC0D2D00ABF4B3"
-            BuildableName = "McBopomofo.app"
-            BlueprintName = "McBopomofo"
-            ReferencedContainer = "container:McBopomofo.xcodeproj">
+            BlueprintIdentifier = "6ACA41CA15FC1D7500935EF6"
+            BuildableName = "BopomixInstaller.app"
+            BlueprintName = "BopomixInstaller"
+            ReferencedContainer = "container:Bopomix.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

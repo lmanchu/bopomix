@@ -23,7 +23,7 @@
 
 import Testing
 
-@testable import McBopomofo
+@testable import Bopomix
 
 @Suite("Preference Tests", .serialized)
 final class PreferencesTests {

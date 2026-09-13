@@ -70,7 +70,7 @@ private func install() -> Int32 {
     return 0
 }
 
-let kConnectionName = "McBopomofo_1_Connection"
+let kConnectionName = "Bopomix_1_Connection"
 
 if CommandLine.arguments.count > 1 {
     if CommandLine.arguments[1] == "install" {

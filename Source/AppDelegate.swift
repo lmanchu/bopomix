@@ -263,7 +263,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
                     self.updateNextStepURL = report.siteUrl
                     let content = String(
                         format: NSLocalizedString(
-                            "You're currently using McBopomofo %@ (%@), a new version %@ (%@) is now available. Do you want to visit McBopomofo's website to download the version?%@",
+                            "You're currently using Bopomix %@ (%@), a new version %@ (%@) is now available. Do you want to visit Bopomix's website to download the version?%@",
                             comment: ""),
                         report.currentShortVersion,
                         report.currentVersion,
@@ -279,7 +279,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
                 case .noNeedToUpdate:
                     NonModalAlertWindowController.shared.show(
                         title: NSLocalizedString("Check for Update Completed", comment: ""),
-                        content: NSLocalizedString("McBopomofo is up to date.", comment: ""),
+                        content: NSLocalizedString("Bopomix is up to date.", comment: ""),
                         confirmButtonTitle: NSLocalizedString("OK", comment: ""),
                         cancelButtonTitle: nil, cancelAsDefault: false, delegate: self)
                 case .ignored:

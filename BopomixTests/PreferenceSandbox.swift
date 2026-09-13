@@ -1,4 +1,4 @@
-// Copyright (c) 2026 and onwards The Mixime Authors.
+// Copyright (c) 2026 and onwards The Bopomix Authors.
 //
 // Permission is hereby granted, free of charge, to any person
 // obtaining a copy of this software and associated documentation
@@ -23,13 +23,13 @@
 
 import XCTest
 
-@testable import McBopomofo
+@testable import Bopomix
 
 /// Protects the *developer's own* input-method preferences from the test
 /// suite (docs/REVIEW-P3-2026-09-11.md's N4).
 ///
 /// Every `Preferences.foo = ...` writes straight through to the real
-/// `org.openvanilla.inputmethod.McBopomofo` defaults domain -- the same
+/// `io.github.lmanchu.bopomix` defaults domain -- the same
 /// file the installed input method reads (`UserDefault`'s setter is an
 /// unconditional `UserDefaults.standard.set`). The per-property
 /// save-in-setUp / restore-in-tearDown pattern the KeyHandler test classes
@@ -58,10 +58,10 @@ import XCTest
 enum PreferenceSandbox {
 
     /// The app host's own domain -- `Preferences` writes to
-    /// `UserDefaults.standard`, which for the McBopomofo test host is
+    /// `UserDefaults.standard`, which for the Bopomix test host is
     /// this domain.
     private static var domainName: String {
-        Bundle.main.bundleIdentifier ?? "org.openvanilla.inputmethod.McBopomofo"
+        Bundle.main.bundleIdentifier ?? "io.github.lmanchu.bopomix"
     }
 
     /// Captured once, the first time any test installs the sandbox, and

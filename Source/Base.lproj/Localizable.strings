@@ -1,8 +1,8 @@
 /* No comment provided by engineer. */
-"About McBopomofo…" = "About McBopomofo…";
+"About Bopomix…" = "About Bopomix…";
 
 /* No comment provided by engineer. */
-"McBopomofo Preferences" = "McBopomofo Preferences";
+"Bopomix Preferences" = "Bopomix Preferences";
 
 /* No comment provided by engineer. */
 "Check for Updates…" = "Check for Updates…";
@@ -29,7 +29,7 @@
 "Visit Website" = "Visit Website";
 
 /* No comment provided by engineer. */
-"You're currently using McBopomofo %@ (%@), a new version %@ (%@) is now available. Do you want to visit McBopomofo's website to download the version?%@" = "You're currently using McBopomofo %@ (%@), a new version %@ (%@) is now available. Do you want to visit McBopomofo's website to download the version?%@";
+"You're currently using Bopomix %@ (%@), a new version %@ (%@) is now available. Do you want to visit Bopomix's website to download the version?%@" = "You're currently using Bopomix %@ (%@), a new version %@ (%@) is now available. Do you want to visit Bopomix's website to download the version?%@";
 
 "Convert to Simplified Chinese" = "Convert to Simplified Chinese";
 
@@ -95,7 +95,7 @@
 
 "Check for Update Completed" = "Check for Update Completed";
 
-"McBopomofo is up to date." = "McBopomofo is up to date.";
+"Bopomix is up to date." = "Bopomix is up to date.";
 
 "Look up \"%1$@\" in %2$@" = "Look up \"%1$@\" in %2$@";
 
@@ -137,7 +137,7 @@
 
 "Issues were found in the following user phrase files:" = "Issues were found in the following user phrase files:";
 
-"Check McBopomofo menu for user file issues" = "Check McBopomofo menu for user file issues";
+"Check Bopomix menu for user file issues" = "Check Bopomix menu for user file issues";
 
 "User phrase file" = "User phrase file";
 

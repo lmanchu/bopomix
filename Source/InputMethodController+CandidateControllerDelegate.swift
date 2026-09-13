@@ -27,7 +27,7 @@ import InputMethodKit
 import NotifierUI
 import SystemCharacterInfo
 
-extension McBopomofoInputMethodController: CandidateControllerDelegate {
+extension BopomixInputMethodController: CandidateControllerDelegate {
 
     func candidateCountForController(_ controller: CandidateController) -> UInt {
         if let state = state as? CandidateProvider {

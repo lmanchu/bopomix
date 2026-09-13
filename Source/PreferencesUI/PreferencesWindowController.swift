@@ -60,7 +60,7 @@ final class PreferencesWindowController: NSWindowController {
         }
         let window = NSWindow(contentViewController: hostingController)
 
-        window.title = NSLocalizedString("McBopomofo Preferences", comment: "")
+        window.title = NSLocalizedString("Bopomix Preferences", comment: "")
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.setContentSize(

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 and onwards The Mixime Authors.
+// Copyright (c) 2026 and onwards The Bopomix Authors.
 //
 // Permission is hereby granted, free of charge, to any person
 // obtaining a copy of this software and associated documentation
@@ -43,7 +43,7 @@ class TempFile {
  public:
   explicit TempFile(const std::string& content) {
     path_ = std::filesystem::temp_directory_path() /
-            ("mixime_latin_lexicon_test_" +
+            ("bopomix_latin_lexicon_test_" +
              std::to_string(reinterpret_cast<uintptr_t>(this)) + ".txt");
     std::ofstream file(path_);
     file << content;
@@ -126,7 +126,7 @@ TEST(LatinLexiconTest, RememberWordIsImmediatelyVisible) {
 TEST(LatinLexiconTest, RememberWordPersistsToUserFile) {
   std::filesystem::path userPath =
       std::filesystem::temp_directory_path() /
-      "mixime_latin_lexicon_test_user_words.txt";
+      "bopomix_latin_lexicon_test_user_words.txt";
   std::filesystem::remove(userPath);
 
   {
@@ -219,7 +219,7 @@ TEST(LatinLexiconTest, RememberWordReportsAFailedWrite) {
 TEST(LatinLexiconTest, RememberWordReportsSuccessWhenItPersists) {
   std::filesystem::path userPath =
       std::filesystem::temp_directory_path() /
-      "mixime_latin_lexicon_test_remember_ok.txt";
+      "bopomix_latin_lexicon_test_remember_ok.txt";
   std::filesystem::remove(userPath);
 
   LatinLexicon lexicon;
@@ -277,7 +277,7 @@ TEST(LatinLexiconTest, LoadUserWordListAcceptsBothPreAndPostP3Formats) {
 TEST(LatinLexiconTest, RememberWordRewritesExistingCountInPlace) {
   std::filesystem::path userPath =
       std::filesystem::temp_directory_path() /
-      "mixime_latin_lexicon_test_rewrite_count.txt";
+      "bopomix_latin_lexicon_test_rewrite_count.txt";
   std::filesystem::remove(userPath);
 
   {
@@ -315,7 +315,7 @@ TEST(LatinLexiconTest, RememberWordRewritesExistingCountInPlace) {
 TEST(LatinLexiconTest, PersistMergesWithWhateverIsOnDiskInsteadOfOverwriting) {
   std::filesystem::path userPath =
       std::filesystem::temp_directory_path() /
-      "mixime_latin_lexicon_test_persist_merge.txt";
+      "bopomix_latin_lexicon_test_persist_merge.txt";
   std::filesystem::remove(userPath);
 
   LatinLexicon lexicon;
@@ -359,9 +359,9 @@ TEST(LatinLexiconTest, PersistMergesWithWhateverIsOnDiskInsteadOfOverwriting) {
 // the user-phrase folder to one that already holds a word list.
 TEST(LatinLexiconTest, WritingAfterAFolderChangeDoesNotClobberTheNewFolder) {
   std::filesystem::path folderA =
-      std::filesystem::temp_directory_path() / "mixime_lexicon_folder_a";
+      std::filesystem::temp_directory_path() / "bopomix_lexicon_folder_a";
   std::filesystem::path folderB =
-      std::filesystem::temp_directory_path() / "mixime_lexicon_folder_b";
+      std::filesystem::temp_directory_path() / "bopomix_lexicon_folder_b";
   std::filesystem::remove_all(folderA);
   std::filesystem::remove_all(folderB);
   std::filesystem::create_directories(folderA);
@@ -467,7 +467,7 @@ TEST(LatinLexiconTest, ResetClearsBuiltinAndUserWordsAndRankBookkeeping) {
 TEST(LatinLexiconTest, ResetClearsUserWordListPath) {
   std::filesystem::path userPath =
       std::filesystem::temp_directory_path() /
-      "mixime_latin_lexicon_test_reset_path.txt";
+      "bopomix_latin_lexicon_test_reset_path.txt";
   std::filesystem::remove(userPath);
 
   LatinLexicon lexicon;
@@ -833,7 +833,7 @@ TEST(LatinLexiconTest, CompletePerformanceOnRandomPrefixes) {
     // a-z as a prefix, each with a handful of longer extensions, so
     // completion candidate sets are realistically sized.
     std::filesystem::path path = std::filesystem::temp_directory_path() /
-        "mixime_latin_lexicon_test_perf_dict.txt";
+        "bopomix_latin_lexicon_test_perf_dict.txt";
     {
       std::ofstream out(path);
       int rank = 0;
