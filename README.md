@@ -7,8 +7,8 @@ macOS 注音輸入法。打中文的時候直接打英文，不用切換輸入�
 你打「我在 slack 上看到那個 issue 了」，從頭打到尾不按 Shift、不切輸入法。
 打到 `sl` 的時候輸入法就知道這是英文，打到 `iss` 它會提示 `issue ⇥`，按 Tab 補完。
 
-混打注音是[小麥注音（McBopomofo）](https://github.com/openvanilla/McBopomofo)的分支，
-加了兩件事：不切換就能打英文，以及英文的預測與 Tab 補全。其他一切都跟小麥注音一樣。
+混打注音做的是兩件事：不切換就能打英文，以及英文的預測與 Tab 補全。
+注音本身的打法、選字、自訂詞都跟你習慣的一樣；底層引擎與中文詞庫來自[小麥注音（McBopomofo）](https://github.com/openvanilla/McBopomofo)。
 
 ## 安裝
 
@@ -16,11 +16,11 @@ macOS 注音輸入法。打中文的時候直接打英文，不用切換輸入�
 
 1. 到 [Releases](https://github.com/lmanchu/bopomix/releases) 下載最新的 `Bopomix-*.dmg`，打開。
 2. 雙擊裡面的「安裝混打注音」，等它說安裝完成。
-3. 到系統設定 ▸ 鍵盤 ▸ 輸入方式 ▸ 編輯 ▸ 按「＋」▸ 繁體中文 ▸ 加入「混打注音」（英文介面顯示為 Bopomix）。之後從選單列的輸入法選單就能切換。
+3. 到系統設定 ▸ 鍵盤 ▸ 輸入方式 ▸ 編輯 ▸ 按「＋」▸ 繁體中文 ▸ 加入「混打注音」（英文介面顯示為 Bopomix）。之後從選單列的輸入法選單就能切換。清單裡找不到的話，登出再登入一次，macOS 在登入時才會重新掃描新裝的輸入法。
 
 安裝程式和輸入法都有 Apple 簽章與公證，不用改任何安全設定。第 3 步只有第一次需要：macOS 要求新的輸入法由使用者親自加入一次。要移除的話，到系統設定 ▸ 鍵盤 ▸ 輸入方式把它拿掉，再刪除 `~/Library/Input Methods/Bopomix.app`。
 
-原本就在用小麥注音？第一次啟動時，你的設定和自訂詞會自動複製過來，原本的小麥注音不會被動到。
+原本用小麥注音？第一次啟動時，你的設定和自訂詞會自動複製過來，原來那一份不會被動到。
 
 ## 它會做的事
 
@@ -52,7 +52,7 @@ macOS 注音輸入法。打中文的時候直接打英文，不用切換輸入�
 - 所有事情都在你的電腦上發生。輸入法唯一會連線的是每天一次的版本檢查（到 GitHub），可以在偏好設定裡關掉。
 - 學到的英文字存在 `~/Library/Application Support/Bopomix/latin-user.txt`，一行一個字，你可以打開看、可以刪。
   只記提交出去的英文字，從不記注音或中文；打到一半按 Esc 或 Backspace 取消的不會記。
-- 中文自訂詞也在同一個資料夾，格式跟小麥注音相同。
+- 中文自訂詞也在同一個資料夾，都是純文字檔。
 
 ## 目前的限制
 
@@ -83,9 +83,9 @@ macOS 注音輸入法。打中文的時候直接打英文，不用切換輸入�
 
 Type 我在 slack 上看到那個 issue 了 straight through. By `sl` the input method has decided it is English; by `iss` it offers `issue ⇥`, and Tab completes it.
 
-Bopomix is a fork of [McBopomofo](https://github.com/openvanilla/McBopomofo) (OpenVanilla, MIT) with two additions: mixed Chinese/English typing without switching, and English prediction with Tab completion. Everything else is McBopomofo.
+Bopomix does two things: mixed Chinese/English typing without switching, and English prediction with Tab completion. Typing Zhuyin, picking candidates and keeping your own phrases work the way you are used to; the engine and the Chinese dictionary underneath come from [McBopomofo](https://github.com/openvanilla/McBopomofo) (OpenVanilla, MIT).
 
-**Install** (macOS 13+, Apple Silicon): download the latest `Bopomix-*.dmg` from [Releases](https://github.com/lmanchu/bopomix/releases), open it, double-click **安裝混打注音** (Install Bopomix), then add **Bopomix** once under System Settings ▸ Keyboard ▸ Input Sources ▸ Edit ▸ + ▸ Traditional Chinese. From then on it is in the input menu. Both the installer and the input method are signed and notarized. If you already use McBopomofo, your settings and user phrases are copied over on first launch; McBopomofo itself is left untouched.
+**Install** (macOS 13+, Apple Silicon): download the latest `Bopomix-*.dmg` from [Releases](https://github.com/lmanchu/bopomix/releases), open it, double-click **安裝混打注音** (Install Bopomix), then add **Bopomix** once under System Settings ▸ Keyboard ▸ Input Sources ▸ Edit ▸ + ▸ Traditional Chinese. From then on it is in the input menu; if it is missing from the list, log out and back in, since macOS only rescans newly installed input methods at login. Both the installer and the input method are signed and notarized. Coming from McBopomofo? Your settings and user phrases are copied over on first launch and the original is left untouched.
 
 **What it does**: letters that cannot form a Zhuyin syllable (`th`, the second letter of `acer`) become English on the spot. Words that are valid both ways (`app`, `ell`) stay Chinese, with the English reading one Tab away; once chosen, the same word plus a space is English from then on. After four letters of English you get a completion hint; Tab accepts it, Shift+Tab shows more. Words you type are learned into a local list. Standard (Dachen) layout and the Bopomofo mode only.
 
