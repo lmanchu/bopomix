@@ -163,7 +163,7 @@ final class LegacyMigrationTests: XCTestCase {
             try FileManager.default.contentsOfDirectory(atPath: legacyFolder.path), ["data.txt"])
     }
 
-    func testDoesNothingWhenTheNewFolderAlreadyExists() throws {
+    func testKeepsAFileTheUserHasAlreadyEditedUnderTheNewIdentity() throws {
         let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
         let newFolder = sandbox.appendingPathComponent("Bopomix")
         try FileManager.default.createDirectory(at: legacyFolder, withIntermediateDirectories: true)
@@ -308,6 +308,7 @@ final class LegacyMigrationTests: XCTestCase {
     }
 
     func testFailsAndLeavesNoNewFolderWhenTheLegacyFolderCannotBeRead() throws {
+        try XCTSkipIf(getuid() == 0, "chmod 000 does not deny root")
         let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
         try FileManager.default.createDirectory(at: legacyFolder, withIntermediateDirectories: true)
         try "legacy\n".write(
@@ -476,5 +477,251 @@ final class LegacyMigrationTests: XCTestCase {
             legacy: ["AddPhraseHookPath": "/Users/someone/bin/commit-phrase.sh"], current: [:])
         XCTAssertEqual(
             result["AddPhraseHookPath"] as? String, "/Users/someone/bin/commit-phrase.sh")
+    }
+
+    // MARK: - copyUserData, per-file merge
+
+    /// The blocking case: the app writes five comment-only templates the
+    /// first time anything touches the dictionary, which can easily happen
+    /// before a migration that had to wait for a volume. Their presence
+    /// must not read as "the user already has data".
+    func testReplacesAnUntouchedTemplateWithTheLegacyFile() throws {
+        let (legacyFolder, newFolder) = try makeLegacyFolder(contents: "real ㄕˊ\n")
+        try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+        try "# Custom Phrases or Characters.\n#\n# Add your phrases below.\n\n".write(
+            to: newFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+
+        XCTAssertEqual(outcome, .copied)
+        XCTAssertEqual(
+            try String(contentsOf: newFolder.appendingPathComponent("data.txt"), encoding: .utf8),
+            "real ㄕˊ\n")
+    }
+
+    func testReplacesAZeroByteTemplateWithTheLegacyFile() throws {
+        let (legacyFolder, newFolder) = try makeLegacyFolder()
+        try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+        // What ensureFileExists writes when the template resource is missing.
+        FileManager.default.createFile(
+            atPath: newFolder.appendingPathComponent("data.txt").path, contents: Data())
+
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+
+        XCTAssertEqual(outcome, .copied)
+        XCTAssertEqual(
+            try String(contentsOf: newFolder.appendingPathComponent("data.txt"), encoding: .utf8),
+            "legacy\n")
+    }
+
+    func testCopiesFilesTheNewFolderIsMissingEvenWhenOthersAreThere() throws {
+        let (legacyFolder, newFolder) = try makeLegacyFolder()
+        try "acer 3\n".write(
+            to: legacyFolder.appendingPathComponent("latin-user.txt"), atomically: true,
+            encoding: .utf8)
+        try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+        try "mine ㄨㄛˇ\n".write(
+            to: newFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+
+        XCTAssertEqual(outcome, .copied)
+        // The user's own file survives; the missing one arrives.
+        XCTAssertEqual(
+            try String(contentsOf: newFolder.appendingPathComponent("data.txt"), encoding: .utf8),
+            "mine ㄨㄛˇ\n")
+        XCTAssertEqual(
+            try String(
+                contentsOf: newFolder.appendingPathComponent("latin-user.txt"), encoding: .utf8),
+            "acer 3\n")
+    }
+
+    /// All three dispositions at once: one missing, one template, one the
+    /// user has edited.
+    func testMergesMissingTemplateAndUserEditedFilesInOnePass() throws {
+        let (legacyFolder, newFolder) = try makeLegacyFolder(contents: "legacy-data\n")
+        try "legacy-latin\n".write(
+            to: legacyFolder.appendingPathComponent("latin-user.txt"), atomically: true,
+            encoding: .utf8)
+        try "legacy-exclude\n".write(
+            to: legacyFolder.appendingPathComponent("exclude-phrases.txt"), atomically: true,
+            encoding: .utf8)
+        try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+        // data.txt: untouched template -> replaced.
+        try "# comment only\n\n".write(
+            to: newFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+        // exclude-phrases.txt: user content -> kept.
+        try "mine-exclude\n".write(
+            to: newFolder.appendingPathComponent("exclude-phrases.txt"), atomically: true,
+            encoding: .utf8)
+        // latin-user.txt: absent -> copied.
+
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+
+        XCTAssertEqual(outcome, .copied)
+        XCTAssertEqual(
+            try String(contentsOf: newFolder.appendingPathComponent("data.txt"), encoding: .utf8),
+            "legacy-data\n")
+        XCTAssertEqual(
+            try String(
+                contentsOf: newFolder.appendingPathComponent("latin-user.txt"), encoding: .utf8),
+            "legacy-latin\n")
+        XCTAssertEqual(
+            try String(
+                contentsOf: newFolder.appendingPathComponent("exclude-phrases.txt"),
+                encoding: .utf8), "mine-exclude\n")
+    }
+
+    func testReportsNotNeededWhenEveryLegacyFileIsAlreadyUserEdited() throws {
+        let (legacyFolder, newFolder) = try makeLegacyFolder()
+        try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+        try "mine\n".write(
+            to: newFolder.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+
+        XCTAssertEqual(outcome, .notNeeded)
+        XCTAssertEqual(
+            try String(contentsOf: newFolder.appendingPathComponent("data.txt"), encoding: .utf8),
+            "mine\n")
+    }
+
+    func testReportsNotNeededWhenTheLegacyFolderHoldsNoRegularFiles() throws {
+        let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
+        try FileManager.default.createDirectory(
+            at: legacyFolder.appendingPathComponent("nested"), withIntermediateDirectories: true)
+        let newFolder = sandbox.appendingPathComponent("Bopomix")
+
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+
+        XCTAssertEqual(outcome, .notNeeded)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newFolder.path))
+    }
+
+    /// A partial failure must undo only what this call wrote: the file it
+    /// added goes, the template it replaced comes back as the zero-byte
+    /// file `ensureFileExists` would have written, and the user's own file
+    /// is never touched.
+    func testPartialFailureRollsBackOnlyWhatItWrote() throws {
+        try XCTSkipIf(getuid() == 0, "chmod 000 does not deny root")
+        let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
+        try FileManager.default.createDirectory(at: legacyFolder, withIntermediateDirectories: true)
+        try "legacy-a\n".write(
+            to: legacyFolder.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        try "legacy-b\n".write(
+            to: legacyFolder.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+        try "legacy-z\n".write(
+            to: legacyFolder.appendingPathComponent("z.txt"), atomically: true, encoding: .utf8)
+        // z.txt is unreadable, so copying it throws part-way through.
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000],
+            ofItemAtPath: legacyFolder.appendingPathComponent("z.txt").path)
+        addTeardownBlock {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644],
+                ofItemAtPath: legacyFolder.appendingPathComponent("z.txt").path)
+        }
+
+        let newFolder = sandbox.appendingPathComponent("Bopomix")
+        try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+        // a.txt: an untouched template this call will replace.
+        try "# template\n".write(
+            to: newFolder.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        // user.txt: the user's own, not in the legacy folder at all.
+        try "keep me\n".write(
+            to: newFolder.appendingPathComponent("user.txt"), atomically: true, encoding: .utf8)
+
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+
+        XCTAssertEqual(outcome, .failed)
+        // b.txt was added by this call, so it is gone again.
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: newFolder.appendingPathComponent("b.txt").path))
+        // a.txt's template was replaced, so it is back as a zero-byte file
+        // -- which isUntouchedTemplate still recognises, so the next
+        // attempt replaces it again.
+        let restored = try Data(contentsOf: newFolder.appendingPathComponent("a.txt"))
+        XCTAssertTrue(restored.isEmpty)
+        XCTAssertTrue(
+            LegacyMigration.isUntouchedTemplate(at: newFolder.appendingPathComponent("a.txt")))
+        // The pre-existing folder and the user's own file are untouched.
+        XCTAssertEqual(
+            try String(contentsOf: newFolder.appendingPathComponent("user.txt"), encoding: .utf8),
+            "keep me\n")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newFolder.path))
+    }
+
+    func testFailsWhenTheLegacyFolderIsASymlinkToAMissingTarget() throws {
+        let legacyFolder = sandbox.appendingPathComponent("McBopomofo")
+        try FileManager.default.createSymbolicLink(
+            at: legacyFolder, withDestinationURL: sandbox.appendingPathComponent("unmounted"))
+        let newFolder = sandbox.appendingPathComponent("Bopomix")
+
+        let outcome = LegacyMigration.copyUserData(from: legacyFolder, to: newFolder)
+
+        // Retryable: the data exists, the volume is just not mounted.
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newFolder.path))
+    }
+
+    // MARK: - isUntouchedTemplate
+
+    func testRecognisesTheShippedTemplatesAsUntouched() throws {
+        let file = sandbox.appendingPathComponent("t.txt")
+        try "# Custom Phrases or Characters.\n#\n#   \n\n".write(
+            to: file, atomically: true, encoding: .utf8)
+        XCTAssertTrue(LegacyMigration.isUntouchedTemplate(at: file))
+    }
+
+    func testTreatsAnyRealLineAsTheUsersOwn() throws {
+        let file = sandbox.appendingPathComponent("t.txt")
+        try "# comment\n小麥 ㄒㄧㄠˇ-ㄇㄞˋ\n".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertFalse(LegacyMigration.isUntouchedTemplate(at: file))
+    }
+
+    func testTreatsUnreadableOrBinaryContentAsTheUsersOwn() throws {
+        let file = sandbox.appendingPathComponent("t.bin")
+        try Data([0xff, 0xfe, 0x00, 0x01]).write(to: file)
+        XCTAssertFalse(LegacyMigration.isUntouchedTemplate(at: file))
+        XCTAssertFalse(
+            LegacyMigration.isUntouchedTemplate(at: sandbox.appendingPathComponent("absent.txt")))
+    }
+
+    // MARK: - userNoticeReason
+
+    func testTellsTheUserOnlyAboutRetryableOutcomes() {
+        XCTAssertNotNil(LegacyMigration.userNoticeReason(for: .failed))
+        XCTAssertEqual(
+            LegacyMigration.userNoticeReason(for: .customLocationUnavailable("/Volumes/x")),
+            "custom location not available: /Volumes/x")
+        XCTAssertNil(LegacyMigration.userNoticeReason(for: .copied))
+        XCTAssertNil(LegacyMigration.userNoticeReason(for: .notNeeded))
+        XCTAssertNil(LegacyMigration.userNoticeReason(for: .skipped("already")))
+    }
+
+    // MARK: - AddPhraseHookPath, component-wise
+
+    func testDropsAddPhraseHookPathWhateverTheBundleIsSpelledLike() {
+        for path in [
+            "/Library/Input Methods/McBopomofo.app/Contents/Resources/add-phrase-hook.sh",
+            "/Library/Input Methods/mcbopomofo.app/Contents/Resources/add-phrase-hook.sh",
+        ] {
+            let result = LegacyMigration.preferencesToMigrate(
+                legacy: ["AddPhraseHookPath": path], current: [:])
+            XCTAssertNil(result["AddPhraseHookPath"], path)
+        }
+    }
+
+    func testKeepsAPathMerelyNamedLikeTheLegacyBundle() {
+        let path = "/Users/someone/McBopomofo.app-scripts/hook.sh"
+        let result = LegacyMigration.preferencesToMigrate(
+            legacy: ["AddPhraseHookPath": path], current: [:])
+        XCTAssertEqual(result["AddPhraseHookPath"] as? String, path)
+    }
+
+    func testDropsAnAddPhraseHookPathThatIsNotAString() {
+        let result = LegacyMigration.preferencesToMigrate(
+            legacy: ["AddPhraseHookPath": 42], current: [:])
+        XCTAssertNil(result["AddPhraseHookPath"])
     }
 }

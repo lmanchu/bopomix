@@ -78,9 +78,9 @@ enum LegacyMigration {
     /// `shouldMigrate(key:value:)`.
     static let addPhraseHookPathKey = "AddPhraseHookPath"
 
-    /// A path containing this component lives inside the other app's
-    /// bundle, which may be uninstalled at any time.
-    static let legacyBundlePathMarker = "McBopomofo.app/"
+    /// A path with this as one of its components lives inside the other
+    /// app's bundle, which may be uninstalled at any time.
+    static let legacyBundleName = "McBopomofo.app"
 
     /// Legacy keys that must not cross over even when the new domain has
     /// no value for them. Each is here for its own reason:
@@ -165,9 +165,17 @@ enum LegacyMigration {
         }
         if key == addPhraseHookPathKey {
             guard let path = value as? String else {
-                return true
+                // Not a path at all. Nothing sane to carry over, and
+                // `populateDefaults()` will supply this app's own.
+                return false
             }
-            return !path.contains(legacyBundlePathMarker)
+            // Component-wise, so that a folder merely *named* like the old
+            // bundle -- `~/McBopomofo.app-scripts/hook.sh` -- is kept.
+            // Case-insensitively, because HFS+/APFS default to it and the
+            // same bundle can be spelled either way.
+            return !(path as NSString).pathComponents.contains {
+                $0.caseInsensitiveCompare(legacyBundleName) == .orderedSame
+            }
         }
         return true
     }
@@ -235,11 +243,59 @@ enum LegacyMigration {
         return .folder(URL(fileURLWithPath: custom))
     }
 
-    /// Copies the legacy user-data folder's top-level regular files to the
-    /// new location.
+    /// Whether a file at the new location is one the app itself just
+    /// created and the user has never edited, and so may be replaced by
+    /// the legacy copy.
+    ///
+    /// `LanguageModelManager +checkIfUserLanguageModelFilesExist` writes
+    /// five of these the first time anything touches the user dictionary
+    /// -- adding a phrase, opening a user file, typing English in mixed
+    /// mode -- which happens long before a migration that had to wait for
+    /// a volume to mount. Treating their presence as "the user already
+    /// has data" is what let a folder of placeholders block the real
+    /// import forever.
+    ///
+    /// Every one of those templates, in every localization, is comments
+    /// only (verified: no non-blank line outside a `#` in any of the ten
+    /// `template-*.txt`), and `ensureFileExists` writes a zero-byte file
+    /// when the resource is missing. So "empty, or nothing but `#` lines"
+    /// identifies them without this file having to know their contents --
+    /// which also keeps it correct when the templates are reworded or a
+    /// localization is added.
+    ///
+    /// Anything unreadable or not valid UTF-8 counts as the user's, since
+    /// the cost of guessing wrong in that direction is losing their words.
+    static func isUntouchedTemplate(at url: URL, fileManager: FileManager = .default) -> Bool {
+        guard let data = fileManager.contents(atPath: url.path) else {
+            return false
+        }
+        if data.isEmpty {
+            return true
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") {
+                continue
+            }
+            return false
+        }
+        return true
+    }
+
+    /// Merges the legacy user-data folder's top-level regular files into
+    /// the new location, file by file.
     ///
     /// Copies rather than moves: the original McBopomofo, if still
     /// installed, keeps reading and writing the folder it always had.
+    ///
+    /// Per file rather than per folder, because the new folder is not
+    /// necessarily untouched by the time this runs -- see
+    /// `isUntouchedTemplate`. A file that is missing, or present only as
+    /// an untouched template, takes the legacy copy; a file with the
+    /// user's own content in it is left alone and logged.
     ///
     /// Symlink-safe by construction, because the legacy folder is a place
     /// users point at their own sync setups. The source is resolved before
@@ -251,20 +307,36 @@ enum LegacyMigration {
     /// Subdirectories and anything that is not a regular file are skipped;
     /// the input method only ever keeps flat text files here.
     ///
-    /// On failure the directory is removed again *if this call created
-    /// it*, so a failed attempt does not leave an empty folder behind that
-    /// would make every later attempt report `.notNeeded`. A directory
-    /// that was already there is left exactly as found.
+    /// On failure everything this call wrote is undone -- files it added
+    /// are removed, templates it replaced are put back as the zero-byte
+    /// file `ensureFileExists` would have written (which
+    /// `isUntouchedTemplate` still recognises, so the next attempt
+    /// replaces it again), and a directory it created is removed. A
+    /// directory or file that was already there is left as found.
     static func copyUserData(
         from legacyFolder: URL, to newFolder: URL, fileManager: FileManager = .default
     ) -> UserDataCopyOutcome {
+        // Read the legacy path without following it, so a symlink can be
+        // told apart from what it points at.
+        guard let legacyAttributes = try? fileManager.attributesOfItem(atPath: legacyFolder.path)
+        else {
+            // Nothing there at all -- a fresh install rather than an
+            // upgrade. Nothing to do, and nothing to retry.
+            return .notNeeded
+        }
         let resolvedLegacy = legacyFolder.resolvingSymlinksInPath()
         var legacyIsDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: resolvedLegacy.path, isDirectory: &legacyIsDirectory),
-            legacyIsDirectory.boolValue
-        else {
-            // No legacy folder at all -- a fresh install rather than an
-            // upgrade. Nothing to do, and nothing to retry.
+        let resolvedExists = fileManager.fileExists(
+            atPath: resolvedLegacy.path, isDirectory: &legacyIsDirectory)
+        if (legacyAttributes[.type] as? FileAttributeType) == .typeSymbolicLink, !resolvedExists {
+            // A link to a volume that is not mounted yet. The data exists,
+            // it is just out of reach: retry rather than record success.
+            NSLog(
+                "LegacyMigration: \(legacyFolder.path) is a symbolic link to a missing target; will retry"
+            )
+            return .failed
+        }
+        guard resolvedExists, legacyIsDirectory.boolValue else {
             return .notNeeded
         }
 
@@ -272,9 +344,10 @@ enum LegacyMigration {
         // link -- including one that dangles, which `fileExists` would
         // miss -- is seen for what it is.
         let destinationAttributes = try? fileManager.attributesOfItem(atPath: newFolder.path)
-        var createdDestination = false
         if let destinationAttributes {
             switch destinationAttributes[.type] as? FileAttributeType {
+            case .typeDirectory:
+                break
             case .typeSymbolicLink:
                 // Refuse: writing through it would put this app's data
                 // wherever the link points, quite possibly back into the
@@ -283,59 +356,128 @@ enum LegacyMigration {
                     "LegacyMigration: \(newFolder.path) is a symbolic link; not migrating user data"
                 )
                 return .failed
-            case .typeDirectory:
-                let existing = (try? fileManager.contentsOfDirectory(atPath: newFolder.path)) ?? []
-                if !existing.isEmpty {
-                    // The user already has data under the new identity.
-                    return .notNeeded
-                }
-            // An empty directory is treated as if it were not there: it
-            // is what a failed earlier attempt or a stray dev build
-            // leaves, and it holds nothing worth protecting.
             default:
-                NSLog("LegacyMigration: \(newFolder.path) is not a directory; not migrating user data")
+                NSLog(
+                    "LegacyMigration: \(newFolder.path) is not a directory; not migrating user data")
                 return .failed
+            }
+        }
+
+        // Files written by this call, so a failure can undo exactly them.
+        var written: [(url: URL, replacedTemplate: Bool)] = []
+        var createdDestination = false
+
+        func rollBack() {
+            for entry in written.reversed() {
+                try? fileManager.removeItem(at: entry.url)
+                if entry.replacedTemplate {
+                    fileManager.createFile(atPath: entry.url.path, contents: Data())
+                }
+            }
+            if createdDestination {
+                try? fileManager.removeItem(at: newFolder)
             }
         }
 
         do {
             // Listed before the destination is created, so that an
             // unreadable source fails without leaving a new folder behind.
-            let names = try fileManager.contentsOfDirectory(atPath: resolvedLegacy.path)
+            // Sorted, so that a partial failure leaves the same state
+            // every time rather than whatever order the file system
+            // happened to enumerate in.
+            let sources = try fileManager.contentsOfDirectory(atPath: resolvedLegacy.path)
+                .sorted()
+                .map {
+                    (
+                        name: $0,
+                        url: resolvedLegacy.appendingPathComponent($0).resolvingSymlinksInPath()
+                    )
+                }
+                .filter { entry in
+                    (try? fileManager.attributesOfItem(atPath: entry.url.path)[.type]
+                        as? FileAttributeType) == .typeRegular
+                }
+            if sources.isEmpty {
+                return .notNeeded
+            }
+
             if destinationAttributes == nil {
                 try fileManager.createDirectory(at: newFolder, withIntermediateDirectories: true)
                 createdDestination = true
             }
-            for name in names {
-                let source = resolvedLegacy.appendingPathComponent(name).resolvingSymlinksInPath()
-                guard
-                    let type = try? fileManager.attributesOfItem(atPath: source.path)[.type]
-                        as? FileAttributeType, type == .typeRegular
-                else {
+
+            for source in sources {
+                let destination = newFolder.appendingPathComponent(source.name)
+                let existing = try? fileManager.attributesOfItem(atPath: destination.path)
+                if existing == nil {
+                    try fileManager.copyItem(at: source.url, to: destination)
+                    written.append((destination, false))
                     continue
                 }
-                try fileManager.copyItem(at: source, to: newFolder.appendingPathComponent(name))
+                guard (existing?[.type] as? FileAttributeType) == .typeRegular else {
+                    NSLog(
+                        "LegacyMigration: \(destination.path) is not a regular file; keeping it")
+                    continue
+                }
+                guard isUntouchedTemplate(at: destination, fileManager: fileManager) else {
+                    NSLog(
+                        "LegacyMigration: \(source.name) already has content under the new identity; keeping it"
+                    )
+                    continue
+                }
+                try fileManager.removeItem(at: destination)
+                try fileManager.copyItem(at: source.url, to: destination)
+                written.append((destination, true))
             }
-            return .copied
+
+            // Nothing written means every legacy file already had a
+            // user-edited counterpart here. That is a complete answer, not
+            // a failure: there is nothing left to bring over.
+            return written.isEmpty ? .notNeeded : .copied
         } catch {
             NSLog(
                 "LegacyMigration: cannot copy \(resolvedLegacy.path) to \(newFolder.path): \(error.localizedDescription)"
             )
-            if createdDestination {
-                // Only ever removes a directory this call made, holding
-                // only files this call just copied.
-                try? fileManager.removeItem(at: newFolder)
-            }
+            rollBack()
             return .failed
         }
     }
 
-    /// The whole decision, as a pure function of its inputs and the file
-    /// system it is handed.
+    /// Set by `migrateIfNeeded` when the user-data half did not happen and
+    /// will be retried, so the app can say so once it has a UI to say it
+    /// with. Read and cleared by `AppDelegate`; nil the rest of the time.
     ///
-    /// Returns what to write rather than writing it, so that the marker
-    /// rules -- which is the part that can permanently lose a user's
-    /// dictionary if it is wrong -- can be tested without a live domain.
+    /// A property rather than a direct call because `migrateIfNeeded` runs
+    /// from `main.swift` before `NSApp.run()`, where putting a window on
+    /// screen is not safe.
+    static var pendingUserNotice: String?
+
+    /// The short reason to show the user, or nil when there is nothing to
+    /// say. Pure, so the message rules are testable.
+    ///
+    /// Only the two retryable outcomes produce one: a copy that failed and
+    /// a custom location that was not mounted. `.copied`, `.notNeeded` and
+    /// `.skipped` are all successful ends of the story.
+    static func userNoticeReason(for outcome: UserDataMigrationOutcome) -> String? {
+        switch outcome {
+        case .failed:
+            return "user data folder could not be copied"
+        case .customLocationUnavailable(let path):
+            return "custom location not available: \(path)"
+        case .copied, .notNeeded, .skipped:
+            return nil
+        }
+    }
+
+    /// The whole decision, as a function of its inputs and the file system
+    /// it is handed.
+    ///
+    /// Not pure: the folder copy really happens here. What it does keep
+    /// out of reach of a live domain is the *preference* half and both
+    /// marker rules -- the part that can permanently lose a user's
+    /// dictionary if it is wrong -- which come back as data for
+    /// `migrateIfNeeded` to apply, so they can be tested against a
+    /// temporary directory.
     static func run(
         legacyPreferences: [String: Any],
         currentPreferences: [String: Any],
@@ -424,6 +566,7 @@ enum LegacyMigration {
         if result.setUserDataMarker {
             defaults.set(true, forKey: userDataMarkerKey)
         }
+        pendingUserNotice = userNoticeReason(for: result.userDataOutcome)
 
         NSLog(
             "LegacyMigration: migrated \(result.preferencesToWrite.count) preference key(s) from \(legacyDomain); user data: \(result.userDataOutcome)"
