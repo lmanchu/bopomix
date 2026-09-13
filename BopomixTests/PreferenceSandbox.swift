@@ -1,4 +1,4 @@
-// Copyright (c) 2026 and onwards The Mixime Authors.
+// Copyright (c) 2026 and onwards The Bopomix Authors.
 //
 // Permission is hereby granted, free of charge, to any person
 // obtaining a copy of this software and associated documentation
@@ -23,13 +23,13 @@
 
 import XCTest
 
-@testable import McBopomofo
+@testable import Bopomix
 
 /// Protects the *developer's own* input-method preferences from the test
 /// suite (docs/REVIEW-P3-2026-09-11.md's N4).
 ///
 /// Every `Preferences.foo = ...` writes straight through to the real
-/// `org.openvanilla.inputmethod.McBopomofo` defaults domain -- the same
+/// `io.github.lmanchu.inputmethod.bopomix` defaults domain -- the same
 /// file the installed input method reads (`UserDefault`'s setter is an
 /// unconditional `UserDefaults.standard.set`). The per-property
 /// save-in-setUp / restore-in-tearDown pattern the KeyHandler test classes
@@ -58,10 +58,10 @@ import XCTest
 enum PreferenceSandbox {
 
     /// The app host's own domain -- `Preferences` writes to
-    /// `UserDefaults.standard`, which for the McBopomofo test host is
+    /// `UserDefaults.standard`, which for the Bopomix test host is
     /// this domain.
     private static var domainName: String {
-        Bundle.main.bundleIdentifier ?? "org.openvanilla.inputmethod.McBopomofo"
+        Bundle.main.bundleIdentifier ?? "io.github.lmanchu.inputmethod.bopomix"
     }
 
     /// Captured once, the first time any test installs the sandbox, and
@@ -76,20 +76,77 @@ enum PreferenceSandbox {
     /// anyway.
     private static var processStartSnapshot: [String: Any]??
 
+    /// Guards `processStartSnapshot`. swift-testing runs `@Test` functions
+    /// in parallel with a fresh suite instance each, so `captureNow()` and
+    /// `restore(key:)` are reachable from several threads at once.
+    private static let snapshotLock = NSLock()
+
+    /// Captures the snapshot on first call and returns it thereafter.
+    ///
+    /// Every suite that writes a preference calls this before its first
+    /// write -- `install(on:)` from `setUpWithError()`, `captureNow()`
+    /// from a swift-testing initializer -- so whichever suite the runner
+    /// starts first captures a domain no test has touched yet, and the
+    /// rest share that reading.
+    @discardableResult
+    private static func snapshot() -> [String: Any]? {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        if processStartSnapshot == nil {
+            processStartSnapshot = .some(
+                UserDefaults.standard.persistentDomain(forName: domainName))
+        }
+        return processStartSnapshot ?? nil
+    }
+
+    /// For swift-testing suites, which have no `XCTestCase` to hang a
+    /// teardown block off and so must call `restore(key:)` from `deinit`
+    /// by hand. Call this before the suite's first preference write.
+    static func captureNow() {
+        snapshot()
+    }
+
+    /// Puts one key back to exactly what it was at process start --
+    /// *including* "not there at all", which is the case a plain
+    /// `Preferences.foo = savedValue` gets wrong: the typed property
+    /// reports a default for a missing key, so writing it back creates a
+    /// key the file never had.
+    static func restore(key: String) {
+        if let value = snapshot()?[key] {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
     static func install(on testCase: XCTestCase) {
         let defaults = UserDefaults.standard
         let name = domainName
-        if processStartSnapshot == nil {
-            processStartSnapshot = .some(defaults.persistentDomain(forName: name))
-        }
+        snapshot()
         testCase.addTeardownBlock {
-            guard let outer = processStartSnapshot, let saved = outer else {
-                // No domain to restore. Deliberately *not*
-                // removePersistentDomain here: wiping someone's real
-                // settings is the one outcome this type exists to
-                // prevent. A genuinely fresh machine (no domain at all at
-                // process start) therefore keeps whatever the suite set,
-                // which is the safe direction to fail in.
+            guard let saved = snapshot() else {
+                // The domain did not exist when this process started, so
+                // there are no real settings here to lose -- and every key
+                // in it now was written by this test process. The app
+                // bundle is also the test host, but under XCTest it skips
+                // `populateDefaults()` (main.swift) and AppDelegate's own
+                // launch-time writes (the two default backfills, the font
+                // check's one-shot flag, and the automatic update check's
+                // NextUpdateCheckDate), so nothing but the tests can have
+                // put a key here.
+                //
+                // Note this covers XCTest only. A swift-testing suite has
+                // no teardown block to hang off and must restore absence
+                // as absence by hand -- see AssociatedPhrasesTests.
+                //
+                // Removing the domain is therefore the correct restore,
+                // not a dangerous one. Leaving it behind instead would
+                // hand a fresh machine, CI, and every contributor's first
+                // run a domain with a handful of stray keys -- and
+                // `LegacyMigration` would then see "the new domain
+                // already has a value" and refuse to migrate exactly
+                // those keys, forever.
+                defaults.removePersistentDomain(forName: name)
                 return
             }
             defaults.setPersistentDomain(saved, forName: name)

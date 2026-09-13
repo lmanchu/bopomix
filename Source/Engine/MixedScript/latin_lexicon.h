@@ -1,4 +1,4 @@
-// Copyright (c) 2026 and onwards The Mixime Authors.
+// Copyright (c) 2026 and onwards The Bopomix Authors.
 //
 // Permission is hereby granted, free of charge, to any person
 // obtaining a copy of this software and associated documentation
@@ -48,7 +48,7 @@ namespace McBopomofo::MixedScript {
 // isWord()/isPrefix()/rank() do not distinguish which store a hit came
 // from.
 //
-// Not thread-safe; McBopomofo/mixime, like the rest of Source/Engine, is
+// Not thread-safe; McBopomofo/bopomix, like the rest of Source/Engine, is
 // used from a single key-handling thread.
 class LatinLexicon {
  public:

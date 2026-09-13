@@ -1,4 +1,4 @@
-// Copyright (c) 2026 and onwards The Mixime Authors.
+// Copyright (c) 2026 and onwards The Bopomix Authors.
 //
 // Permission is hereby granted, free of charge, to any person
 // obtaining a copy of this software and associated documentation
@@ -23,7 +23,7 @@
 
 import XCTest
 
-@testable import McBopomofo
+@testable import Bopomix
 
 /// KeyHandler-level integration tests for P1 zh/en mixed typing (see
 /// ~/.claude/plans/zhuyin-ime-personal.md). The engine-level tests under
@@ -31,7 +31,7 @@ import XCTest
 /// here drives the real `KeyHandler` FSM the way the input method does,
 /// because every blocking defect found in the first review round
 /// (`docs/REVIEW-P1-2026-09-10.md`) lived in that layer and none of them
-/// were visible from the engine tests or from the `mixime-eval` CLI.
+/// were visible from the engine tests or from the `bopomix-eval` CLI.
 ///
 /// Each test named after a `Bx` item reproduces that item's exact key
 /// sequence.
@@ -74,7 +74,7 @@ class MixedScriptKeyHandlerTests: XCTestCase {
         // input method -- see dataFolderOverrideForTesting's doc and
         // docs/REVERIFY-P3-2026-09-12.md's P-2.
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("mixime-tests-\(UUID().uuidString)")
+            .appendingPathComponent("bopomix-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: folder, withIntermediateDirectories: true)
         temporaryUserDataFolder = folder
@@ -702,11 +702,11 @@ class MixedScriptKeyHandlerTests: XCTestCase {
         result.rowCount = rows.count
         // Every row's input and output is written out (id, keys typed,
         // committed text, gold Chinese) so a regression can be diffed
-        // against the mixime-eval CLI's output for the same input instead
+        // against the bopomix-eval CLI's output for the same input instead
         // of being re-derived by hand.
         let dumpPath =
             NSTemporaryDirectory()
-            + "mixime-eval-app-\(variant.rawValue)-\(Preferences.mixedScriptEnabled ? "on" : "off").tsv"
+            + "bopomix-eval-app-\(variant.rawValue)-\(Preferences.mixedScriptEnabled ? "on" : "off").tsv"
         var dump = ""
         defer { try? dump.write(toFile: dumpPath, atomically: true, encoding: .utf8) }
         for row in rows {
@@ -783,7 +783,7 @@ class MixedScriptKeyHandlerTests: XCTestCase {
             "\(avg)us / \(Int(percentile(values, 0.5)))us / \(Int(percentile(values, 0.95)))us / \(values.max()!)us"
     }
 
-    /// The acceptance measurement for P1. Everything the `mixime-eval` CLI
+    /// The acceptance measurement for P1. Everything the `bopomix-eval` CLI
     /// reports is engine-only: it never runs `KeyHandler`, so it cannot
     /// see any of the state-machine defects that made the first round
     /// unshippable (a space opening a candidate window that then ate every
@@ -816,11 +816,11 @@ class MixedScriptKeyHandlerTests: XCTestCase {
             ## P1 round 2 -- app path (real KeyHandler), \(Self.today())
 
             Produced by `MixedScriptKeyHandlerTests.testEval200ThroughKeyHandler`
-            (`xcodebuild -scheme McBopomofo test`), typing each corpus row's
+            (`xcodebuild -scheme Bopomix test`), typing each corpus row's
             `keys` column into a real `KeyHandler` -- candidate states, Esc,
             Enter, the user override model and all -- and reading the
             committed text back. **This is the acceptance number.** The
-            `mixime-eval` sections above it measure the engine only.
+            `bopomix-eval` sections above it measure the engine only.
 
             Two key sequences are reported. `build_corpus.py` puts a
             delimiter space after every syllable, including ones a tone

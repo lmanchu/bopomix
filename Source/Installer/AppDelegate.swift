@@ -24,12 +24,12 @@
 import Cocoa
 import InputSourceHelper
 
-private let kTargetBin = "McBopomofo"
+private let kTargetBin = "Bopomix"
 private let kTargetType = "app"
-private let kTargetBundle = "McBopomofo.app"
+private let kTargetBundle = "Bopomix.app"
 private let kDestinationPartial = "~/Library/Input Methods/"
-private let kTargetPartialPath = "~/Library/Input Methods/McBopomofo.app"
-private let kTargetFullBinPartialPath = "~/Library/Input Methods/McBopomofo.app/Contents/MacOS/McBopomofo"
+private let kTargetPartialPath = "~/Library/Input Methods/Bopomix.app"
+private let kTargetFullBinPartialPath = "~/Library/Input Methods/Bopomix.app/Contents/MacOS/Bopomix"
 
 private let kTranslocationRemovalTickInterval: TimeInterval = 0.5
 private let kTranslocationRemovalDeadline: TimeInterval = 60.0
@@ -252,7 +252,7 @@ class AppDelegate: NSWindowController, NSApplicationDelegate {
         }
 
         if warning {
-            runAlertPanel(title: NSLocalizedString("Attention", comment: ""), message: NSLocalizedString("McBopomofo is upgraded, but please log out or reboot for the new version to be fully functional.", comment: ""), buttonTitle: NSLocalizedString("OK", comment: ""))
+            runAlertPanel(title: NSLocalizedString("Attention", comment: ""), message: NSLocalizedString("Bopomix is upgraded, but please log out or reboot for the new version to be fully functional.", comment: ""), buttonTitle: NSLocalizedString("OK", comment: ""))
             endAppWithDelay()
         } else {
             if !mainInputSourceEnabled && !isMacOS12OrAbove {
@@ -268,7 +268,7 @@ class AppDelegate: NSWindowController, NSApplicationDelegate {
                     NSAttributedString.Key.foregroundColor : NSColor.textColor
                 ]
                 let message = NSMutableAttributedString(string: NSLocalizedString("Installation Successful", comment: ""), attributes: headlineAttr)
-                let details = NSAttributedString(string: NSLocalizedString("McBopomofo is ready to use.", comment: ""), attributes: bodyAttr)
+                let details = NSAttributedString(string: NSLocalizedString("Bopomix is ready to use.", comment: ""), attributes: bodyAttr)
                 message.append(NSAttributedString(string: "\n\n"))
                 message.append(details)
                 textView.textStorage?.setAttributedString(message)

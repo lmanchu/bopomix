@@ -1,14 +1,14 @@
-# mixime P0.5 baseline
+# bopomix P0.5 baseline
 
 Generated: 2026-09-10T17:21:33+08:00
 
-Engine: mixime (fork of McBopomofo, upstream commit f5ba010 at fork time),
+Engine: bopomix (fork of McBopomofo, upstream commit f5ba010 at fork time),
 unmodified F1/F2 logic -- this is the *baseline*, i.e. what the stock
 McBopomofo engine does today, before any zh/en mixed-typing or AI
 re-ranking work lands.
 
 Corpus: `/Users/lman/Dev/mixime-private/eval200.tsv` -- 200 rows (vault=200, synthetic=0).
-Language model data: `build/Build/Products/Debug/McBopomofo.app/Contents/Resources/data.txt` (sha256 0deae7b7c1dcde1d7a30d139e7068543e0c0e7112e944b63eb52947bca1db7ac).
+Language model data: `build/Build/Products/Debug/Bopomix.app/Contents/Resources/data.txt` (sha256 0deae7b7c1dcde1d7a30d139e7068543e0c0e7112e944b63eb52947bca1db7ac).
 
 ## Commands
 
@@ -16,7 +16,7 @@ Language model data: `build/Build/Products/Debug/McBopomofo.app/Contents/Resourc
 cmake -S Source/Engine -B build-engine -DENABLE_TEST=ON
 cmake --build build-engine
 python3 tools/eval/run_eval.py --corpus /Users/lman/Dev/mixime-private/eval200.tsv \
-    --cli build-engine/tools/eval/mixime-eval --data build/Build/Products/Debug/McBopomofo.app/Contents/Resources
+    --cli build-engine/tools/eval/bopomix-eval --data build/Build/Products/Debug/Bopomix.app/Contents/Resources
 ```
 
 ## Results
@@ -70,7 +70,7 @@ Same corpus and language model as the P0.5 baseline above, run with
 ~/.claude/plans/zhuyin-ime-personal.md's P1 design section) instead of the
 baseline's unmodified engine.
 
-**These numbers are not acceptance criteria.** `mixime-eval` reimplements
+**These numbers are not acceptance criteria.** `bopomix-eval` reimplements
 the *ordering* of KeyHandler.mm's operations over the same engine; it has
 no candidate window, no Esc/backspace handling, no force-commit and no
 user override model, so it cannot see the class of defect that made the
@@ -83,7 +83,7 @@ section as an engine regression check only.
 
 ```
 python3 tools/eval/run_eval.py --corpus /Users/lman/Dev/mixime-private/eval200.tsv \
-    --cli build-engine/tools/eval/mixime-eval --data build/Build/Products/Debug/McBopomofo.app/Contents/Resources \
+    --cli build-engine/tools/eval/bopomix-eval --data build/Build/Products/Debug/Bopomix.app/Contents/Resources \
     --mixed on --lexicon-dir Source/Data
 ```
 
@@ -138,14 +138,14 @@ genuinely do not cover it, or there is a bug -- see the category column.
 | h | 1 | 規則錯判／未命中詞典（獨立測試也失敗，需人工檢視） |
 | zz | 1 | 規則錯判／未命中詞典（獨立測試也失敗，需人工檢視） |
 
-## P1 round 2 -- app path (real KeyHandler), 2026-09-12
+## P1 round 2 -- app path (real KeyHandler), 2026-09-13
 
 Produced by `MixedScriptKeyHandlerTests.testEval200ThroughKeyHandler`
-(`xcodebuild -scheme McBopomofo test`), typing each corpus row's
+(`xcodebuild -scheme Bopomix test`), typing each corpus row's
 `keys` column into a real `KeyHandler` -- candidate states, Esc,
 Enter, the user override model and all -- and reading the
 committed text back. **This is the acceptance number.** The
-`mixime-eval` sections above it measure the engine only.
+`bopomix-eval` sections above it measure the engine only.
 
 Two key sequences are reported. `build_corpus.py` puts a
 delimiter space after every syllable, including ones a tone
@@ -163,7 +163,7 @@ visible so the difference is not hidden.
 | F1 row-level (all tokens kept) | 167/200 = 83.5% | 160/200 = 80.0% |
 | zh accuracy within the mixed sentence | 3901/4586 = 85.1% | 1845/4586 = 40.2% |
 | rows with a zh length mismatch | 37/200 | 146/200 |
-| latency per row (avg / p50 / p95 / max) | 6337us / 6355us / 10667us / 14810us | 8172us / 8077us / 14387us / 19236us |
+| latency per row (avg / p50 / p95 / max) | 6095us / 6231us / 10107us / 14388us | 7977us / 7972us / 13573us / 18480us |
 
 ### Pure-Chinese control: does turning this on damage normal typing?
 
@@ -178,7 +178,7 @@ while the harness's own F2 number stayed flat, because F2's
 |---|---|---|
 | **zh character accuracy** | **4369/4586 = 95.3%** | 4369/4586 = 95.3% |
 | rows with a zh length mismatch | 1/200 | 1/200 |
-| latency per row (avg / p50 / p95 / max) | 5218us / 5268us / 9302us / 13439us | 4990us / 5035us / 9148us / 12692us |
+| latency per row (avg / p50 / p95 / max) | 5137us / 5264us / 9274us / 12870us | 4882us / 4953us / 8885us / 12415us |
 
 Note that the "zh accuracy within the mixed sentence" row in the
 first table is *not* comparable to 95.3%: it is measured on
@@ -187,10 +187,10 @@ English run legitimately breaks the phrase context around it,
 and its own no-mixed-typing counterpart is 56.2%. The
 pure-Chinese control above is the like-for-like number.
 
-## P3 -- English prediction + Tab completion, 2026-09-12
+## P3 -- English prediction + Tab completion, 2026-09-13
 
 Produced by `LatinCompletionKeyHandlerTests.testEval200LatinCompletion`
-(`xcodebuild -scheme McBopomofo test`). For every eval200 English
+(`xcodebuild -scheme Bopomix test`). For every eval200 English
 token of length >= 3, simulates typing it letter by letter into
 a real `KeyHandler` and records the first prefix length at which
 the completion tooltip's top-1 prediction equals the token --

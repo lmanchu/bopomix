@@ -61,7 +61,7 @@ make tidy sort check all
 ### Building via Xcode
 
 ```bash
-xcodebuild -project ../McBopomofo.xcodeproj -target Data -configuration Debug build
+xcodebuild -project ../Bopomix.xcodeproj -target Data -configuration Debug build
 # Or select "Data" scheme in Xcode and build (⌘+B)
 ```
 
@@ -431,8 +431,8 @@ diff -u <(awk '{print $1}' BPMFMappings.txt|sort -u) \
 make tidy sort    # Format and sort
 make check        # Validate integrity
 make all          # Build output files
-make _install     # Install to ~/Library/Input Methods/McBopomofo.app/
-pkill -HUP McBopomofo  # Restart
+make _install     # Install to ~/Library/Input Methods/Bopomix.app/
+pkill -HUP Bopomix  # Restart
 ```
 
 ## Common Issues and Solutions

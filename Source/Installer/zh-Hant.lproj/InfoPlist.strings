@@ -1,5 +1,5 @@
 /* Localized versions of Info.plist keys */
 
-CFBundleName = "安裝小麥注音";
-NSHumanReadableCopyright = "Copyright © 2011-2026 Mengjuei Hsieh et al.\nAll Rights Reserved.";
+CFBundleName = "安裝混打注音";
+NSHumanReadableCopyright = "Copyright © 2011-2026 Mengjuei Hsieh et al.\nBopomix modifications © 2026 Lman Chu.\nAll Rights Reserved.";
 

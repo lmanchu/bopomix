@@ -44,8 +44,8 @@ extension CandidateController {
     static let vertical = VerticalCandidateController()
 }
 
-@objc(McBopomofoInputMethodController)
-class McBopomofoInputMethodController: IMKInputController {
+@objc(BopomixInputMethodController)
+class BopomixInputMethodController: IMKInputController {
 
     private static let tooltipController = TooltipController()
 
@@ -140,7 +140,7 @@ class McBopomofoInputMethodController: IMKInputController {
             withTitle: NSLocalizedString("Reload User Phrases", comment: ""),
             action: #selector(reloadUserPhrases(_:)), keyEquivalent: "")
 
-        if !McBopomofoInputMethodController.latestUserFileIssues.isEmpty {
+        if !BopomixInputMethodController.latestUserFileIssues.isEmpty {
             // Setting menuItem.image does not work in input method menus even on macOS 26,
             // so we just use the alert emoji in the menu item title.
             let menuItem = NSMenuItem(
@@ -152,13 +152,13 @@ class McBopomofoInputMethodController: IMKInputController {
         menu.addItem(NSMenuItem.separator())
 
         menu.addItem(
-            withTitle: NSLocalizedString("McBopomofo Preferences", comment: ""),
+            withTitle: NSLocalizedString("Bopomix Preferences", comment: ""),
             action: #selector(showPreferences(_:)), keyEquivalent: "")
         menu.addItem(
             withTitle: NSLocalizedString("Check for Updates…", comment: ""),
             action: #selector(checkForUpdate(_:)), keyEquivalent: "")
         menu.addItem(
-            withTitle: NSLocalizedString("About McBopomofo…", comment: ""),
+            withTitle: NSLocalizedString("About Bopomix…", comment: ""),
             action: #selector(showAbout(_:)), keyEquivalent: "")
         return menu
     }
@@ -352,7 +352,7 @@ class McBopomofoInputMethodController: IMKInputController {
 
         // Empty the issues so that if there are still the same issues, a
         // notification will be shown.
-        McBopomofoInputMethodController.latestUserFileIssues = []
+        BopomixInputMethodController.latestUserFileIssues = []
         checkUserFileIssues()
     }
 
@@ -361,7 +361,7 @@ class McBopomofoInputMethodController: IMKInputController {
             "Issues were found in the following user phrase files:", comment: "")
         let report =
             header + "\n\n"
-            + McBopomofoInputMethodController.latestUserFileIssues.joined(separator: "\n")
+            + BopomixInputMethodController.latestUserFileIssues.joined(separator: "\n")
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         let now = Date()
         let formatter = DateFormatter()
@@ -388,7 +388,7 @@ class McBopomofoInputMethodController: IMKInputController {
 
 // MARK: - State Handling
 
-extension McBopomofoInputMethodController {
+extension BopomixInputMethodController {
 
     func handle(state newState: InputState, client: Any?) {
         let previous = state
@@ -739,7 +739,7 @@ extension McBopomofoInputMethodController {
 
 // MARK: -
 
-extension McBopomofoInputMethodController {
+extension BopomixInputMethodController {
     private func handleStateForCustomInput(
         composingBuffer: String, previous: InputState, client: Any?
     ) {
@@ -934,12 +934,12 @@ extension McBopomofoInputMethodController {
             lineHeightRect.origin.x += (lineHeightRect.size.width + 1.0)
         }
 
-        McBopomofoInputMethodController.tooltipController.show(
+        BopomixInputMethodController.tooltipController.show(
             tooltip: tooltip, at: lineHeightRect.origin)
     }
 
     private func hideTooltip() {
-        McBopomofoInputMethodController.tooltipController.hide()
+        BopomixInputMethodController.tooltipController.hide()
     }
 
     private func checkUserFileIssues() {
@@ -947,13 +947,13 @@ extension McBopomofoInputMethodController {
 
         // McBopomofoLM caps the maximum number of issues collected, and so
         // we'll just do this O(n) comparison since n is small.
-        if McBopomofoInputMethodController.latestUserFileIssues != issues {
-            McBopomofoInputMethodController.latestUserFileIssues = issues
+        if BopomixInputMethodController.latestUserFileIssues != issues {
+            BopomixInputMethodController.latestUserFileIssues = issues
 
-            if !McBopomofoInputMethodController.latestUserFileIssues.isEmpty {
+            if !BopomixInputMethodController.latestUserFileIssues.isEmpty {
                 NotifierController.notify(
                     message: NSLocalizedString(
-                        "Check McBopomofo menu for user file issues", comment: ""), stay: true)
+                        "Check Bopomix menu for user file issues", comment: ""), stay: true)
             }
         }
     }

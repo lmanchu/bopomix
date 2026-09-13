@@ -70,7 +70,7 @@ private func install() -> Int32 {
     return 0
 }
 
-let kConnectionName = "McBopomofo_1_Connection"
+let kConnectionName = "Bopomix_1_Connection"
 
 if CommandLine.arguments.count > 1 {
     if CommandLine.arguments[1] == "install" {
@@ -102,6 +102,7 @@ guard let bundleID = Bundle.main.bundleIdentifier, let server = IMKServer(name: 
 // see Preferences.isRunningUnderXCTest and
 // docs/REVERIFY-P3-2026-09-12.md's P-3.
 if !Preferences.isRunningUnderXCTest {
+    LegacyMigration.migrateIfNeeded()
     Preferences.populateDefaults()
 }
 NSApp.run()

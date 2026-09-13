@@ -24,7 +24,7 @@
 	<dict>
 		<key>tsInputModeListKey</key>
 		<dict>
-			<key>org.openvanilla.inputmethod.McBopomofo.Bopomofo</key>
+			<key>io.github.lmanchu.inputmethod.bopomix.Bopomofo</key>
 			<dict>
 				<key>TISDoubleSpaceSubstitution</key>
 				<string>。</string>
@@ -52,7 +52,7 @@
 				<key>tsInputModeScriptKey</key>
 				<string>smTradChinese</string>
 			</dict>
-			<key>org.openvanilla.inputmethod.McBopomofo.PlainBopomofo</key>
+			<key>io.github.lmanchu.inputmethod.bopomix.PlainBopomofo</key>
 			<dict>
 				<key>TISDoubleSpaceSubstitution</key>
 				<string>。</string>
@@ -83,16 +83,16 @@
 		</dict>
 		<key>tsVisibleInputModeOrderedArrayKey</key>
 		<array>
-			<string>org.openvanilla.inputmethod.McBopomofo.Bopomofo</string>
-			<string>org.openvanilla.inputmethod.McBopomofo.PlainBopomofo</string>
+			<string>io.github.lmanchu.inputmethod.bopomix.Bopomofo</string>
+			<string>io.github.lmanchu.inputmethod.bopomix.PlainBopomofo</string>
 		</array>
 	</dict>
 	<key>InputMethodConnectionName</key>
-	<string>McBopomofo_1_Connection</string>
+	<string>Bopomix_1_Connection</string>
 	<key>InputMethodServerControllerClass</key>
-	<string>McBopomofoInputMethodController</string>
+	<string>BopomixInputMethodController</string>
 	<key>InputMethodServerDelegateClass</key>
-	<string>McBopomofoInputMethodController</string>
+	<string>BopomixInputMethodController</string>
 	<key>InputMethodServerPreferencesWindowControllerClass</key>
 	<string>PreferencesWindowController</string>
 	<key>LSApplicationCategoryType</key>
@@ -104,7 +104,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2011-2026 Mengjuei Hsieh et al.</string>
+	<string>Copyright © 2011-2026 Mengjuei Hsieh et al. Bopomix modifications © 2026 Lman Chu.</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
@@ -115,7 +115,7 @@
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>Add to McBopomofo User Phrases</string>
+				<string>Add to Bopomix User Phrases</string>
 			</dict>
 			<key>NSMessage</key>
 			<string>addUserPhrase</string>
@@ -320,15 +320,15 @@
 	<key>TICapsLockLanguageSwitchCapable</key>
 	<true/>
 	<key>TISInputSourceID</key>
-	<string>org.openvanilla.inputmethod.McBopomofo</string>
+	<string>io.github.lmanchu.inputmethod.bopomix</string>
 	<key>TISIntendedLanguage</key>
 	<string>zh-Hant</string>
 	<key>TISParticipatesInTouchBar</key>
 	<false/>
 	<key>UpdateInfoEndpoint</key>
-	<string>https://mcbopomofo.openvanilla.org/updates/Info.plist</string>
+	<string>https://raw.githubusercontent.com/lmanchu/bopomix/master/updates/Info.plist</string>
 	<key>UpdateInfoSite</key>
-	<string>https://mcbopomofo.openvanilla.org/</string>
+	<string>https://github.com/lmanchu/bopomix/releases</string>
 	<key>tsInputMethodCharacterRepertoireKey</key>
 	<array>
 		<string>Hant</string>

@@ -259,10 +259,10 @@ class Preferences: NSObject {
     /// True when this process is an XCTest run rather than the input
     /// method itself.
     ///
-    /// The McBopomofo app bundle *is* the XCTest host, so `main.swift`
+    /// The Bopomix app bundle *is* the XCTest host, so `main.swift`
     /// runs in full before a single test does -- including
     /// `populateDefaults()`, which unconditionally wrote 23 keys into the
-    /// real `org.openvanilla.inputmethod.McBopomofo` domain. Those writes
+    /// real `io.github.lmanchu.inputmethod.bopomix` domain. Those writes
     /// happen before `PreferenceSandbox` can take its snapshot, so they
     /// are restored rather than removed, and one of them (a build-tree
     /// `AddPhraseHookPath`) outlived the build directory it pointed at
@@ -361,7 +361,7 @@ class Preferences: NSObject {
     // MARK: P1 zh/en mixed typing (see zhuyin-ime-personal.md)
 
     /// Master switch for zh/en mixed typing. Opt-in for now (P1):
-    /// `defaults write org.openvanilla.inputmethod.McBopomofo
+    /// `defaults write io.github.lmanchu.inputmethod.bopomix
     /// MixedScriptEnabled -bool true`. Off, every mixedScript code path
     /// short-circuits and the input method behaves exactly like upstream
     /// McBopomofo.
@@ -622,7 +622,7 @@ extension Preferences {
         let paths = NSSearchPathForDirectoriesInDomains(
             .applicationSupportDirectory, .userDomainMask, true)
         let appSupportPath = paths.first!
-        return (appSupportPath as NSString).appendingPathComponent("McBopomofo")
+        return (appSupportPath as NSString).appendingPathComponent("Bopomix")
     }
 }
 
@@ -733,7 +733,7 @@ extension Preferences {
 extension Preferences {
     static func createReport() -> String {
         var lines: [String] = []
-        lines.append("- McBopomofo Settings")
+        lines.append("- Bopomix Settings")
         lines.append("  - Keyboard Layout: \(Preferences.keyboardLayout.name)")
         lines.append("  - Basis Keyboard Layout: \(Preferences.basisKeyboardLayout)")
         lines.append("  - Function Keyboard Layout: \(Preferences.functionKeyboardLayout)")

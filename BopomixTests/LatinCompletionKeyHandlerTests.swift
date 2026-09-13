@@ -1,4 +1,4 @@
-// Copyright (c) 2026 and onwards The Mixime Authors.
+// Copyright (c) 2026 and onwards The Bopomix Authors.
 //
 // Permission is hereby granted, free of charge, to any person
 // obtaining a copy of this software and associated documentation
@@ -23,7 +23,7 @@
 
 import XCTest
 
-@testable import McBopomofo
+@testable import Bopomix
 
 /// KeyHandler-level integration tests for P3 English prediction + Tab
 /// completion (see ~/.claude/plans/zhuyin-ime-personal.md's F3 scope).
@@ -60,7 +60,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     override func setUpWithError() throws {
         // Must come before the first Preferences write: every assignment
         // below goes straight into the real
-        // org.openvanilla.inputmethod.McBopomofo defaults domain, and this
+        // io.github.lmanchu.inputmethod.bopomix defaults domain, and this
         // is the only thing that puts it back -- including removing keys
         // the assignments *created* on a machine that never had them, and
         // including when a test below fails part-way through (see
@@ -96,7 +96,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
         // input method -- see dataFolderOverrideForTesting's doc and
         // docs/REVERIFY-P3-2026-09-12.md's P-2.
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("mixime-completion-tests-\(UUID().uuidString)")
+            .appendingPathComponent("bopomix-completion-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: folder, withIntermediateDirectories: true)
         temporaryUserDataFolder = folder
@@ -1052,7 +1052,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
     func testMovingTheUserPhraseFolderNeitherLosesNorCarriesWords() throws {
         let folderA = temporaryUserDataFolder!
         let folderB = folderA.deletingLastPathComponent()
-            .appendingPathComponent("mixime-completion-tests-B-\(UUID().uuidString)")
+            .appendingPathComponent("bopomix-completion-tests-B-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: folderB, withIntermediateDirectories: true)
         addTeardownBlock {
@@ -1150,11 +1150,11 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
 
     // MARK: - P-3: the test host must not write the developer's preferences
 
-    /// docs/REVERIFY-P3-2026-09-12.md's P-3. The McBopomofo app bundle is
+    /// docs/REVERIFY-P3-2026-09-12.md's P-3. The Bopomix app bundle is
     /// this suite's test host, so `main.swift` runs to completion before
     /// any test does -- and its `Preferences.populateDefaults()` wrote 23
     /// keys straight into the real
-    /// `org.openvanilla.inputmethod.McBopomofo` domain, earlier than
+    /// `io.github.lmanchu.inputmethod.bopomix` domain, earlier than
     /// `PreferenceSandbox` can snapshot it, so the sandbox restored them
     /// instead of removing them. One of them, `AddPhraseHookPath`, was
     /// left pointing into a `build/` directory on the reviewer's machine.
@@ -1608,7 +1608,7 @@ class LatinCompletionKeyHandlerTests: XCTestCase {
             ## P3 -- English prediction + Tab completion, \(Self.today())
 
             Produced by `LatinCompletionKeyHandlerTests.testEval200LatinCompletion`
-            (`xcodebuild -scheme McBopomofo test`). For every eval200 English
+            (`xcodebuild -scheme Bopomix test`). For every eval200 English
             token of length >= 3, simulates typing it letter by letter into
             a real `KeyHandler` and records the first prefix length at which
             the completion tooltip's top-1 prediction equals the token --

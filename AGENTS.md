@@ -4,7 +4,7 @@ This file provides guidance to AI coding assistants when working with code in th
 
 ## Project Overview
 
-McBopomofo (小麥注音輸入法) is a Traditional Chinese input method engine for macOS that enables users to input Traditional Chinese characters using the Bopomofo phonetic system (注音符號). The app also supports two Taiwanese Braille formats, Unicode and ASCII. The project is built with Swift (UI/state management), Objective-C++ (bridge layer), and C++ (core engine), using macOS Input Method Kit (IMK) framework.
+Bopomix (混打注音輸入法) is a fork of OpenVanilla McBopomofo (小麥注音), a Traditional Chinese input method engine for macOS that enables users to input Traditional Chinese characters using the Bopomofo phonetic system (注音符號). The app also supports two Taiwanese Braille formats, Unicode and ASCII. The project is built with Swift (UI/state management), Objective-C++ (bridge layer), and C++ (core engine), using macOS Input Method Kit (IMK) framework.
 
 ## System Requirements
 
@@ -20,20 +20,28 @@ McBopomofo (小麥注音輸入法) is a Traditional Chinese input method engine 
 ### Xcode Project Structure
 
 The project contains these main **targets**:
-- `McBopomofo`: Main input method bundle
-- `McBopomofoInstaller`: Installer app (recommended for development)
+- `Bopomix`: Main input method bundle
+- `BopomixInstaller`: Installer app (recommended for development)
 - `Data`: Dictionary data generation
-- `McBopomofoTests`: Swift test suite
+- `BopomixTests`: Swift test suite
+
+**Bundle identifier:** `io.github.lmanchu.inputmethod.bopomix`. The `inputmethod` component is not
+decoration: macOS Text Input Sources silently ignores `TISRegisterInputSource` for an input
+method whose bundle identifier has no `inputmethod` component (verified on macOS 26.6 on
+2026-09-13 -- `io.github.lmanchu.bopomix` registered "successfully" and never appeared in the
+input source list; adding the component fixed it with no other change). The two input-mode keys
+in `Source/Bopomix-Info.plist`, `Source/KeyHandler.mm`, every `InfoPlist.strings`, and
+`tools/eval/check_plist_unchanged.sh` must all carry the same prefix.
 
 **Build configurations:** Debug, Release (default when building from command line)
 
-**Available schemes:** McBopomofo, McBopomofoInstaller, Data, plus individual schemes for local packages (BopomofoBraille, CandidateUI, ChineseNumbers, FSEventStreamHelper, InputSourceHelper, NotifierUI, NSStringUtils, OpenCCBridge, SystemCharacterInfo, TooltipUI)
+**Available schemes:** Bopomix, BopomixInstaller, Data, plus individual schemes for local packages (BopomofoBraille, CandidateUI, ChineseNumbers, FSEventStreamHelper, InputSourceHelper, NotifierUI, NSStringUtils, OpenCCBridge, SystemCharacterInfo, TooltipUI)
 
 ### Primary Development Workflow
 
-1. Open `McBopomofo.xcodeproj` in Xcode
-2. Select the **"McBopomofoInstaller"** target
-3. Build (⌘+B) and run to install McBopomofo
+1. Open `Bopomix.xcodeproj` in Xcode
+2. Select the **"BopomixInstaller"** target
+3. Build (⌘+B) and run to install Bopomix
 4. The installer automatically kills and restarts the input method process
 
 **Important:** macOS limits how many times an input method process can be killed in a single login session. If installation stops working after multiple installs, log out and log back in.
@@ -42,19 +50,19 @@ The project contains these main **targets**:
 
 ```bash
 # Build the installer
-xcodebuild -project McBopomofo.xcodeproj -target McBopomofoInstaller -configuration Debug build
+xcodebuild -project Bopomix.xcodeproj -target BopomixInstaller -configuration Debug build
 
 # Build the main input method
-xcodebuild -project McBopomofo.xcodeproj -target McBopomofo -configuration Debug build
+xcodebuild -project Bopomix.xcodeproj -target Bopomix -configuration Debug build
 
 # Build dictionary data only
-xcodebuild -project McBopomofo.xcodeproj -target Data -configuration Debug build
+xcodebuild -project Bopomix.xcodeproj -target Data -configuration Debug build
 ```
 
 ### Running Tests
 
 #### Swift Tests
-- Target: `McBopomofoTests` in Xcode
+- Target: `BopomixTests` in Xcode
 - Framework: XCTest with Swift `Testing` module
 - Run in Xcode with ⌘+U or test navigator
 
@@ -63,7 +71,7 @@ and will report failures that have nothing to do with your change.**
 
 The reason is not fixable from inside a test: `Preferences` reads and
 writes `UserDefaults.standard`, i.e. the real
-`org.openvanilla.inputmethod.McBopomofo` domain, which is one per-user
+`io.github.lmanchu.inputmethod.bopomix` domain, which is one per-user
 file shared by *every* parallel test-runner process. `PreferencesTests`
 removes every key in that domain in its initializer and asserts on
 default values, while the KeyHandler suites are simultaneously setting
@@ -79,7 +87,7 @@ to set them from, not a rewrite, but it has not been done.
 
 What *has* been fixed is the part that damaged real data rather than
 just reporting noise. A parallel run used to leave 130 eval-corpus words
-in `~/Library/Application Support/McBopomofo/latin-user.txt` -- the
+in `~/Library/Application Support/Bopomix/latin-user.txt` -- the
 installed input method's own word list -- because the KeyHandler suites
 redirected their user-data folder by writing
 `CustomUserPhraseLocation`, and one worker clearing that key while
@@ -98,21 +106,37 @@ is skipped entirely when a test fails. Anything that needs the
 `LanguageModelManager.dataFolderOverrideForTesting` in `setUpWithError()`
 and clear it in a teardown block; never write
 `UseCustomUserPhraseLocation` / `CustomUserPhraseLocation` from a test.
-Note also that the test host is the McBopomofo app itself, so
+Note also that the test host is the Bopomix app itself, so
 `main.swift` runs before any test does; its `Preferences.populateDefaults()`
-is skipped under XCTest (`Preferences.isRunningUnderXCTest`) because
-those writes land earlier than `PreferenceSandbox` can snapshot them.
+is skipped under XCTest (`Preferences.isRunningUnderXCTest`), as are
+`AppDelegate`'s launch-time writes, because those land earlier than
+`PreferenceSandbox` can snapshot them.
+
+**Do not change preferences in an installed Bopomix while the suite is
+running** (roughly 40 seconds). The sandbox restores the *whole* domain
+to the snapshot it took when the suite started, so anything you toggle
+in the middle is rolled back with it.
+
+**A swift-testing suite restores through `PreferenceSandbox.restore(key:)`,
+never through a value it read in `init()`.** `.serialized` orders the
+tests inside one suite; swift-testing still runs different suites
+concurrently, so a value read in `init()` can be one another suite just
+wrote, and writing it back in `deinit` resurrects a key that suite had
+correctly removed. `PreferenceSandbox`'s snapshot is shared and taken
+once, before any suite writes, which is the only reading that means
+"what this machine had before the tests".
+
 Verify all of it with:
 
 ```bash
 tools/eval/check_plist_unchanged.sh \
-  xcodebuild -project McBopomofo.xcodeproj -scheme McBopomofo \
+  xcodebuild -project Bopomix.xcodeproj -scheme Bopomix \
     -configuration Debug -derivedDataPath build \
     CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM="" test
 ```
 
 which fails if the run changed a single preference key, or created or
-modified `~/Library/Application Support/McBopomofo/`.
+modified `~/Library/Application Support/Bopomix/`.
 
 #### C++ Engine Tests
 ```bash
@@ -175,7 +199,7 @@ McBopomofo uses a three-layer architecture (Swift/Objective-C++/C++). For detail
 | `Source/Data/Makefile` | Dictionary data build system |
 | `Source/Data/AGENTS.md` | Comprehensive dictionary data documentation |
 | `algorithm.md` | Detailed algorithm explanation (Chinese) |
-| `McBopomofoTests/PreferencesTests.swift` | Example Swift Testing suite patterns |
+| `BopomixTests/PreferencesTests.swift` | Example Swift Testing suite patterns |
 
 ## Development Guidelines
 
@@ -217,7 +241,7 @@ McBopomofo uses a three-layer architecture (Swift/Objective-C++/C++). For detail
 
 - Manage C++ object lifetimes in `.mm` files with proper `init`/`dealloc`
 - Use `std::shared_ptr` when passing to C++ APIs
-- Surface engine capabilities by extending bridge classes and declaring in `McBopomofo-Bridging-Header.h`
+- Surface engine capabilities by extending bridge classes and declaring in `Bopomix-Bridging-Header.h`
 - Convert between `NSString` and `std::string` using `UTF8Helper`/`NSStringUtils`, not manual conversion
 - Keep bridge methods small: forward to engine, return Foundation types
 
@@ -230,7 +254,7 @@ McBopomofo uses a three-layer architecture (Swift/Objective-C++/C++). For detail
 
 ### Testing
 
-- **Swift tests:** Use Swift `Testing` module with `@Suite`, `@Test`, `#expect` macros in `McBopomofoTests/`
+- **Swift tests:** Use Swift `Testing` module with `@Suite`, `@Test`, `#expect` macros in `BopomixTests/`
 - **C++ tests:** Add to `Source/Engine/CMakeLists.txt` in `McBopomofoLMLibTest` target, use GoogleTest
 - **Mixed tests:** Use Objective-C++ (`.mm`) with bridging header for Swift-C++ interop
 - Snapshot/restore `UserDefaults` in tests (see `PreferencesTests.swift`)

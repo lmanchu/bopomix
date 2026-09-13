@@ -1,4 +1,4 @@
-// Copyright (c) 2026 and onwards The Mixime Authors.
+// Copyright (c) 2026 and onwards The Bopomix Authors.
 //
 // Permission is hereby granted, free of charge, to any person
 // obtaining a copy of this software and associated documentation
@@ -44,7 +44,7 @@ class TempWordList {
  public:
   explicit TempWordList(const std::string& content) {
     path_ = std::filesystem::temp_directory_path() /
-            ("mixime_tracker_test_" +
+            ("bopomix_tracker_test_" +
              std::to_string(reinterpret_cast<uintptr_t>(this)) + ".txt");
     std::ofstream file(path_);
     file << content;

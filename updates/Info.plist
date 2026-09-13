@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleShortVersionString</key>
+	<string>3.1.1</string>
+	<key>CFBundleVersion</key>
+	<string>2510</string>
+	<key>Description</key>
+	<dict>
+		<key>en</key>
+		<string>Bopomix initial release.</string>
+		<key>zh-Hant</key>
+		<string>混打注音初版。</string>
+	</dict>
+	<key>UpdateInfoSite</key>
+	<string>https://github.com/lmanchu/bopomix/releases</string>
+</dict>
+</plist>

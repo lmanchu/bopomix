@@ -1,8 +1,8 @@
 /* No comment provided by engineer. */
-"About McBopomofo…" = "About McBopomofo…";
+"About Bopomix…" = "About Bopomix…";
 
 /* No comment provided by engineer. */
-"McBopomofo Preferences" = "McBopomofo Preferences";
+"Bopomix Preferences" = "Bopomix Preferences";
 
 /* No comment provided by engineer. */
 "Check for Updates…" = "Check for Updates…";
@@ -29,7 +29,7 @@
 "Visit Website" = "Visit Website";
 
 /* No comment provided by engineer. */
-"You're currently using McBopomofo %@ (%@), a new version %@ (%@) is now available. Do you want to visit McBopomofo's website to download the version?%@" = "You're currently using McBopomofo %@ (%@), a new version %@ (%@) is now available. Do you want to visit McBopomofo's website to download the version?%@";
+"You're currently using Bopomix %@ (%@), a new version %@ (%@) is now available. Do you want to visit Bopomix's website to download the version?%@" = "You're currently using Bopomix %@ (%@), a new version %@ (%@) is now available. Do you want to visit Bopomix's website to download the version?%@";
 
 "Convert to Simplified Chinese" = "Convert to Simplified Chinese";
 
@@ -95,7 +95,7 @@
 
 "Check for Update Completed" = "Check for Update Completed";
 
-"McBopomofo is up to date." = "McBopomofo is up to date.";
+"Bopomix is up to date." = "Bopomix is up to date.";
 
 "Look up \"%1$@\" in %2$@" = "Look up \"%1$@\" in %2$@";
 
@@ -137,7 +137,7 @@
 
 "Issues were found in the following user phrase files:" = "Issues were found in the following user phrase files:";
 
-"Check McBopomofo menu for user file issues" = "Check McBopomofo menu for user file issues";
+"Check Bopomix menu for user file issues" = "Check Bopomix menu for user file issues";
 
 "User phrase file" = "User phrase file";
 
@@ -258,3 +258,8 @@
 "You can run a script to use git to backup your phrases. The script will run in the folder of your user phrases folder." = "You can run a script to use git to backup your phrases. The script will run in the folder of your user phrases folder.";
 
 "Quick Text Transform" = "Quick Text Transform";
+"Bopomix could not import your McBopomofo user phrases yet: the folder they are kept in (%@) is not available. It will try again the next time it starts." = "Bopomix could not import your McBopomofo user phrases yet: the folder they are kept in (%@) is not available. It will try again the next time it starts.";
+"Bopomix could not import your McBopomofo user phrases yet: %@ points somewhere that is not available. It will try again the next time it starts." = "Bopomix could not import your McBopomofo user phrases yet: %@ points somewhere that is not available. It will try again the next time it starts.";
+"Bopomix could not import your McBopomofo user phrases: %@ is in the way and is not a folder Bopomix can write to." = "Bopomix could not import your McBopomofo user phrases: %@ is in the way and is not a folder Bopomix can write to.";
+"Bopomix imported some of your McBopomofo user phrases, but could not read these files: %@. The originals are still in %@. It will try again the next time it starts." = "Bopomix imported some of your McBopomofo user phrases, but could not read these files: %@. The originals are still in %@. It will try again the next time it starts.";
+"Bopomix could not read your McBopomofo user phrase folder (%@). It will try again the next time it starts." = "Bopomix could not read your McBopomofo user phrase folder (%@). It will try again the next time it starts.";

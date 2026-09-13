@@ -8,7 +8,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 # the Mandarin/ and gramambular2/ subdirectory pattern: a small static lib
 # plus its own gtest binary, consumed by McBopomofoLMLib (McBopomofoLM
 # merges LatinPassthroughLM into its unigram dispatch) and by KeyHandler.mm
-# (drives MixedScriptTracker directly) and by tools/eval/mixime_eval.cpp
+# (drives MixedScriptTracker directly) and by tools/eval/bopomix_eval.cpp
 # (the `--mixed` flag drives the same tracker for parity between the app
 # and the eval harness).
 add_library(MixedScriptLib

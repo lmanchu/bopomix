@@ -23,16 +23,32 @@
 
 import Testing
 
-@testable import McBopomofo
+@testable import Bopomix
 
-@Suite("Associated Phrases Testing")
+@Suite("Associated Phrases Testing", .serialized)
 final class AssociatedPhrasesTests {
 
     var handler = KeyHandler()
-    var chineseConversionEnabled: Bool = false
+
+    /// The key name `Preferences.chineseConversionEnabled` is stored
+    /// under. Duplicated from `kChineseConversionEnabledKey`
+    /// (Preferences.swift), which is file-private; widening that just for
+    /// a test is the worse trade, so keep the two in step by hand.
+    private let chineseConversionKey = "ChineseConversionEnabled"
 
     init() async throws {
-        chineseConversionEnabled = Preferences.chineseConversionEnabled
+        // Restoring by reading the typed property here and assigning it
+        // back in `deinit` looks symmetric but is not: the property
+        // reports `false` for a key that was never in the file, so writing
+        // it back **creates** the key. Nor is snapshotting the raw value
+        // here enough -- this suite is swift-testing and runs
+        // unserialized against the XCTest suites, several of which set
+        // this same key in `setUpWithError()`, so "the value right now"
+        // is whatever the runner's ordering happened to leave.
+        //
+        // PreferenceSandbox's snapshot is shared and taken once, by
+        // whichever suite starts first, before any of them writes.
+        PreferenceSandbox.captureNow()
         Preferences.chineseConversionEnabled = false
         LanguageModelManager.loadDataModels()
         handler = KeyHandler()
@@ -40,7 +56,7 @@ final class AssociatedPhrasesTests {
     }
 
     deinit {
-        Preferences.chineseConversionEnabled = chineseConversionEnabled
+        PreferenceSandbox.restore(key: chineseConversionKey)
     }
 
     private func typeKeys(_ keySequence: String) -> InputState {

@@ -23,7 +23,7 @@
 
 #import "LanguageModelManager.h"
 #import "LanguageModelManager+Privates.h"
-#import "McBopomofo-Swift.h"
+#import "Bopomix-Swift.h"
 
 #include "UTF8Helper.h"
 #include "AssociatedPhrasesV2.h"
@@ -59,21 +59,21 @@ static NSString *const kTemplateExtension = @".txt";
 
 static void LTLoadLanguageModelFile(NSString *filenameWithoutExtension, McBopomofo::McBopomofoLM& lm)
 {
-    Class cls = NSClassFromString(@"McBopomofoInputMethodController");
+    Class cls = NSClassFromString(@"BopomixInputMethodController");
     NSString *dataPath = [[NSBundle bundleForClass:cls] pathForResource:filenameWithoutExtension ofType:@"txt"];
     lm.loadLanguageModel(dataPath.UTF8String);
 }
 
 static void LTLoadAssociatedPhrases(McBopomofo::McBopomofoLM& lm)
 {
-    Class cls = NSClassFromString(@"McBopomofoInputMethodController");
+    Class cls = NSClassFromString(@"BopomixInputMethodController");
     NSString *dataPath = [[NSBundle bundleForClass:cls] pathForResource:@"associated-phrases-v2" ofType:@"txt"];
     lm.loadAssociatedPhrasesV2(dataPath.UTF8String);
 }
 
 static void LTLoadVariantAnnotatorData()
 {
-    Class cls = NSClassFromString(@"McBopomofoInputMethodController");
+    Class cls = NSClassFromString(@"BopomixInputMethodController");
     NSString *puaDataPath = [[NSBundle bundleForClass:cls] pathForResource:@"bpmfvs-pua" ofType:@"txt"];
     if (puaDataPath == nil) {
         NSLog(@"Error: No PUA data found in bundle");
@@ -118,7 +118,7 @@ static void LTLoadMixedScriptLexicon()
     }
     gLatinLexiconLoadStarted = YES;
 
-    Class cls = NSClassFromString(@"McBopomofoInputMethodController");
+    Class cls = NSClassFromString(@"BopomixInputMethodController");
     NSString *wordsPath = [[NSBundle bundleForClass:cls] pathForResource:@"latin-words" ofType:@"txt"];
     NSString *techSeedPath = [[NSBundle bundleForClass:cls] pathForResource:@"latin-tech-seed" ofType:@"txt"];
     if (wordsPath == nil) {

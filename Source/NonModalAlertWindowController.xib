@@ -6,7 +6,7 @@
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
     <objects>
-        <customObject id="-2" userLabel="File's Owner" customClass="NonModalAlertWindowController" customModule="McBopomofo">
+        <customObject id="-2" userLabel="File's Owner" customClass="NonModalAlertWindowController" customModule="Bopomix">
             <connections>
                 <outlet property="cancelButton" destination="71" id="83"/>
                 <outlet property="confirmButton" destination="5" id="82"/>

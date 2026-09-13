@@ -1,4 +1,4 @@
-小麥注音使用下列開源程式庫：
+混打注音（Bopomix）衍生自 OpenVanilla 小麥注音（[McBopomofo](https://github.com/openvanilla/McBopomofo)，MIT License，Copyright 2011-2026 Mengjuei Hsieh et al.），並使用下列開源程式庫：
 
 - [SwiftyOpenCC](https://github.com/ddddxxx/SwiftyOpenCC) by DengXiang under
   the MIT License.

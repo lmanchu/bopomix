@@ -23,7 +23,7 @@
 
 import Testing
 
-@testable import McBopomofo
+@testable import Bopomix
 
 @Suite("Preference Tests", .serialized)
 final class PreferencesTests {
@@ -34,31 +34,30 @@ final class PreferencesTests {
         }
     }
 
-    func makeSnapshot() -> [String: Any] {
-        var dict = [String: Any]()
-        Preferences.allKeys.forEach {
-            dict[$0] = UserDefaults.standard.object(forKey: $0)
-        }
-        return dict
-    }
-
-    func restore(from snapshot: [String: Any]) {
-        Preferences.allKeys.forEach {
-            UserDefaults.standard.set(snapshot[$0], forKey: $0)
-        }
-    }
-
-    var snapshot: [String: Any]?
-
     init() async throws {
-        snapshot = makeSnapshot()
+        // Captured before `reset()` empties the domain: PreferenceSandbox's
+        // shared snapshot is taken by whichever suite starts first, and if
+        // that were this one *after* the wipe, the XCTest teardown would
+        // "restore" a machine's real settings to nothing.
+        PreferenceSandbox.captureNow()
         reset()
     }
 
     deinit {
-        if let snapshot = snapshot {
-            restore(from: snapshot)
-        }
+        // Restore from the shared *process-start* snapshot, never from
+        // values read here in `init()`.
+        //
+        // `.serialized` orders the tests within this suite; it says nothing
+        // about other suites, which swift-testing runs concurrently. A
+        // snapshot taken in `init()` therefore photographs whatever a
+        // parallel suite happens to have written a moment earlier. That is
+        // exactly how a stray key survived a run on an empty domain:
+        // AssociatedPhrasesTests sets `ChineseConversionEnabled = false` in
+        // its own initializer, this suite's snapshot caught it, and this
+        // `deinit` wrote it back after AssociatedPhrasesTests had correctly
+        // removed it again. Which `deinit` ran last was up to the runner,
+        // so the leak came and went between runs.
+        Preferences.allKeys.forEach { PreferenceSandbox.restore(key: $0) }
     }
 
     @Test("Test keyboard layout setting")

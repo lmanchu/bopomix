@@ -24,7 +24,7 @@
 #import "KeyHandler.h"
 #import "LanguageModelManager+Privates.h"
 #import "Mandarin.h"
-#import "McBopomofo-Swift.h"
+#import "Bopomix-Swift.h"
 #import "McBopomofoLM.h"
 #import "UTF8Helper.h"
 #import "UserOverrideModel.h"
@@ -47,8 +47,8 @@
 @import RomanNumbers;
 @import BopomofoBraille;
 
-InputMode InputModeBopomofo = @"org.openvanilla.inputmethod.McBopomofo.Bopomofo";
-InputMode InputModePlainBopomofo = @"org.openvanilla.inputmethod.McBopomofo.PlainBopomofo";
+InputMode InputModeBopomofo = @"io.github.lmanchu.inputmethod.bopomix.Bopomofo";
+InputMode InputModePlainBopomofo = @"io.github.lmanchu.inputmethod.bopomix.PlainBopomofo";
 
 // P3 English prediction + Tab completion (see
 // ~/.claude/plans/zhuyin-ime-personal.md's F3 scope). The synthetic

@@ -4,17 +4,17 @@
 # both the preferences domain (docs/REVIEW-P3-2026-09-11.md's N4) and the
 # user-data folder (docs/REVERIFY-P3-2026-09-12.md's P-2).
 #
-# The XCTest target runs inside the real McBopomofo app host and
+# The XCTest target runs inside the real Bopomix app host and
 # Preferences writes straight through to the live
-# org.openvanilla.inputmethod.McBopomofo defaults domain -- the same file
+# io.github.lmanchu.inputmethod.bopomix defaults domain -- the same file
 # the *installed* input method reads. A test that set a $TMPDIR path as
 # CustomUserPhraseLocation and did not put it back once left the author's
 # installed IME writing learned phrases into a folder macOS deletes.
-# McBopomofoTests/PreferenceSandbox.swift is the fix for that half.
+# BopomixTests/PreferenceSandbox.swift is the fix for that half.
 #
 # The folder check is here because the plist check alone did not catch the
 # worse failure: a `-parallel-testing-enabled YES` run left 130 eval-corpus
-# words in ~/Library/Application Support/McBopomofo/latin-user.txt with the
+# words in ~/Library/Application Support/Bopomix/latin-user.txt with the
 # plist reporting PLIST_UNCHANGED throughout. The test suite redirects its
 # data folder through LanguageModelManager.dataFolderOverrideForTesting
 # (process-local, unlike the preference key it replaced), so the real
@@ -26,7 +26,7 @@
 #
 # Example:
 #   tools/eval/check_plist_unchanged.sh \
-#     xcodebuild -project McBopomofo.xcodeproj -scheme McBopomofo \
+#     xcodebuild -project Bopomix.xcodeproj -scheme Bopomix \
 #       -configuration Debug -derivedDataPath build \
 #       CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM="" test
 #
@@ -38,9 +38,9 @@
 
 set -u
 
-DOMAIN="org.openvanilla.inputmethod.McBopomofo"
-DATA_FOLDER="${HOME}/Library/Application Support/McBopomofo"
-WORKDIR="$(mktemp -d -t mixime-plist-guard)"
+DOMAIN="io.github.lmanchu.inputmethod.bopomix"
+DATA_FOLDER="${HOME}/Library/Application Support/Bopomix"
+WORKDIR="$(mktemp -d -t bopomix-plist-guard)"
 BEFORE="${WORKDIR}/before.plist"
 AFTER="${WORKDIR}/after.plist"
 FOLDER_BEFORE="${WORKDIR}/folder-before.txt"
@@ -71,6 +71,12 @@ if [ "$#" -eq 0 ]; then
   exit 64
 fi
 
+# A domain that does not exist needs no ABSENT sentinel of its own, unlike
+# the data folder above: `defaults export` succeeds either way and writes
+# the same 42-byte empty bplist for a missing domain as for an existing but
+# empty one (verified byte-for-byte). So "absent before, absent after" and
+# "empty before, empty after" both diff clean, while a run that creates the
+# domain and puts keys in it still shows up.
 defaults export "${DOMAIN}" "${BEFORE}"
 snapshot_data_folder > "${FOLDER_BEFORE}"
 
@@ -92,7 +98,7 @@ else
   echo "" >&2
   echo "Every XCTest class that touches Preferences must call" >&2
   echo "PreferenceSandbox.install(on: self) as the first statement of" >&2
-  echo "setUpWithError(). See McBopomofoTests/PreferenceSandbox.swift." >&2
+  echo "setUpWithError(). See BopomixTests/PreferenceSandbox.swift." >&2
   STATUS=1
 fi
 

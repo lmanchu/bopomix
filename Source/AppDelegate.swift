@@ -24,6 +24,7 @@
 import Cocoa
 import FSEventStreamHelper
 import InputMethodKit
+import NotifierUI
 
 private let kCheckUpdateAutomatically = "CheckUpdateAutomatically"
 private let kNextUpdateCheckDateKey = "NextUpdateCheckDate"
@@ -193,14 +194,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
         LanguageModelManager.setupDataModelValueConverter()
         updateUserPhrases()
 
-        if UserDefaults.standard.object(forKey: kCheckUpdateAutomatically) == nil {
-            UserDefaults.standard.set(true, forKey: kCheckUpdateAutomatically)
-            UserDefaults.standard.synchronize()
-        }
+        // Backfilling defaults is what the *input method* wants on
+        // launch; it is the last thing an XCTest run wants, since this
+        // bundle is also the test host and this runs before any test
+        // (and so before PreferenceSandbox's snapshot) --
+        // see Preferences.isRunningUnderXCTest and main.swift's
+        // populateDefaults() gate.
+        if !Preferences.isRunningUnderXCTest {
+            if UserDefaults.standard.object(forKey: kCheckUpdateAutomatically) == nil {
+                UserDefaults.standard.set(true, forKey: kCheckUpdateAutomatically)
+                UserDefaults.standard.synchronize()
+            }
 
-        if UserDefaults.standard.object(forKey: kBeepUponInputErrorKey) == nil {
-            UserDefaults.standard.set(true, forKey: kBeepUponInputErrorKey)
-            UserDefaults.standard.synchronize()
+            if UserDefaults.standard.object(forKey: kBeepUponInputErrorKey) == nil {
+                UserDefaults.standard.set(true, forKey: kBeepUponInputErrorKey)
+                UserDefaults.standard.synchronize()
+            }
         }
 
         NotificationCenter.default.addObserver(
@@ -214,7 +223,60 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
 
         enableBopomofoFontAnnotationSupportMenuItemIfRelevantFontsInstalled()
 
+        reportPendingLegacyMigrationNotice()
+
         checkForUpdate()
+    }
+
+    /// Tells the user, once, that the import from McBopomofo has not
+    /// happened yet and will be retried.
+    ///
+    /// `LegacyMigration` runs from `main.swift`, before `NSApp.run()`,
+    /// where showing anything is not safe -- so it leaves the message here
+    /// and this picks it up at the first moment there is a UI. Silent on
+    /// success, and silent under XCTest, where the migration never ran.
+    private func reportPendingLegacyMigrationNotice() {
+        if Preferences.isRunningUnderXCTest {
+            return
+        }
+        guard let reason = LegacyMigration.pendingUserNotice else {
+            return
+        }
+        LegacyMigration.pendingUserNotice = nil
+        NotifierController.notify(message: Self.message(for: reason), stay: true)
+    }
+
+    /// The sentence for one migration problem. Separate from the notifier
+    /// call so each case gets its own localizable string rather than a
+    /// single template with an English clause spliced into it.
+    private static func message(for problem: LegacyMigration.MigrationProblem) -> String {
+        switch problem {
+        case .customLocationUnavailable(let path):
+            return String(
+                format: NSLocalizedString(
+                    "Bopomix could not import your McBopomofo user phrases yet: the folder they are kept in (%@) is not available. It will try again the next time it starts.",
+                    comment: ""), path)
+        case .legacyFolderUnreadable(let path):
+            return String(
+                format: NSLocalizedString(
+                    "Bopomix could not read your McBopomofo user phrase folder (%@). It will try again the next time it starts.",
+                    comment: ""), path)
+        case .legacySymlinkTargetMissing(let path):
+            return String(
+                format: NSLocalizedString(
+                    "Bopomix could not import your McBopomofo user phrases yet: %@ points somewhere that is not available. It will try again the next time it starts.",
+                    comment: ""), path)
+        case .destinationBlocked(let path):
+            return String(
+                format: NSLocalizedString(
+                    "Bopomix could not import your McBopomofo user phrases: %@ is in the way and is not a folder Bopomix can write to.",
+                    comment: ""), path)
+        case .partial(let skippedNames, let legacyFolderPath):
+            return String(
+                format: NSLocalizedString(
+                    "Bopomix imported some of your McBopomofo user phrases, but could not read these files: %@. The originals are still in %@. It will try again the next time it starts.",
+                    comment: ""), skippedNames.joined(separator: ", "), legacyFolderPath)
+        }
     }
 
     @MainActor
@@ -234,6 +296,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
     func checkForUpdate(forced: Bool) {
         if checkTask != nil {
             // busy
+            return
+        }
+
+        // Every path out of here writes kNextUpdateCheckDateKey below,
+        // forced or not. This bundle is also the XCTest host, so the
+        // launch-time call lands that write in the real domain before any
+        // test runs (and so before PreferenceSandbox's snapshot) -- see
+        // Preferences.isRunningUnderXCTest and main.swift's
+        // populateDefaults() gate. Gating the whole function rather than
+        // just the automatic branch keeps that true for a future test of
+        // the menu action, which would have no teardown block to clean up
+        // after it if it were swift-testing. VersionUpdateTests calls
+        // VersionUpdateApi.check(forced:) directly and never comes here.
+        if Preferences.isRunningUnderXCTest {
             return
         }
 
@@ -263,7 +339,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
                     self.updateNextStepURL = report.siteUrl
                     let content = String(
                         format: NSLocalizedString(
-                            "You're currently using McBopomofo %@ (%@), a new version %@ (%@) is now available. Do you want to visit McBopomofo's website to download the version?%@",
+                            "You're currently using Bopomix %@ (%@), a new version %@ (%@) is now available. Do you want to visit Bopomix's website to download the version?%@",
                             comment: ""),
                         report.currentShortVersion,
                         report.currentVersion,
@@ -279,7 +355,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
                 case .noNeedToUpdate:
                     NonModalAlertWindowController.shared.show(
                         title: NSLocalizedString("Check for Update Completed", comment: ""),
-                        content: NSLocalizedString("McBopomofo is up to date.", comment: ""),
+                        content: NSLocalizedString("Bopomix is up to date.", comment: ""),
                         confirmButtonTitle: NSLocalizedString("OK", comment: ""),
                         cancelButtonTitle: nil, cancelAsDefault: false, delegate: self)
                 case .ignored:
@@ -373,6 +449,15 @@ extension AppDelegate {
 
 extension AppDelegate {
     private func enableBopomofoFontAnnotationSupportMenuItemIfRelevantFontsInstalled() {
+        // Sets a one-shot flag in the real domain. This bundle is also the
+        // XCTest host, so it would run before any test does (and so before
+        // PreferenceSandbox's snapshot) -- see
+        // Preferences.isRunningUnderXCTest and main.swift's
+        // populateDefaults() gate.
+        if Preferences.isRunningUnderXCTest {
+            return
+        }
+
         guard !Preferences.bopomofoFontAnnotationSupportMenuItemEnabledByInstalledFontsCheck_V1
         else {
             return

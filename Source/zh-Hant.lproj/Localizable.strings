@@ -1,8 +1,8 @@
 /* No comment provided by engineer. */
-"About McBopomofo…" = "關於小麥注音…";
+"About Bopomix…" = "關於混打注音…";
 
 /* No comment provided by engineer. */
-"McBopomofo Preferences" = "小麥注音偏好設定";
+"Bopomix Preferences" = "混打注音偏好設定";
 
 /* No comment provided by engineer. */
 "Check for Updates…" = "檢查是否有新版…";
@@ -29,7 +29,7 @@
 "Visit Website" = "前往網站";
 
 /* No comment provided by engineer. */
-"You're currently using McBopomofo %@ (%@), a new version %@ (%@) is now available. Do you want to visit McBopomofo's website to download the version?%@" = "目前使用的小麥注音版本是 %1$@ (%2$@)，網路上有更新版本 %3$@ (%4$@) 可供下載。是否要前往小麥注音網站下載新版來安裝？%5$@";
+"You're currently using Bopomix %@ (%@), a new version %@ (%@) is now available. Do you want to visit Bopomix's website to download the version?%@" = "目前使用的混打注音版本是 %1$@ (%2$@)，網路上有更新版本 %3$@ (%4$@) 可供下載。是否要前往混打注音網站下載新版來安裝？%5$@";
 
 "Convert to Simplified Chinese" = "輸出簡體中文";
 
@@ -95,7 +95,7 @@
 
 "Check for Update Completed" = "版本檢查完成";
 
-"McBopomofo is up to date." = "您的小麥注音不需要更新。";
+"Bopomix is up to date." = "您的混打注音不需要更新。";
 
 "Look up \"%1$@\" in %2$@" = "在%2$@查詢「%1$@」";
 
@@ -137,7 +137,7 @@
 
 "Issues were found in the following user phrase files:" = "以下是用戶自訂詞庫檔案中發現的問題：";
 
-"Check McBopomofo menu for user file issues" = "自訂詞庫有誤，請從小麥注音選單點選「列出自訂詞庫中的問題」";
+"Check Bopomix menu for user file issues" = "自訂詞庫有誤，請從混打注音選單點選「列出自訂詞庫中的問題」";
 
 "User phrase file" = "使用者自訂詞彙檔";
 
@@ -258,3 +258,8 @@
 "You can run a script to use git to backup your phrases. The script will run in the folder of your user phrases folder." = "您可以在加詞之後，透過這個 Shell Script 執行指定的工作，像是使用 git 備份詞庫。這個 script 會在你的使用者詞彙資料夾下執行。";
 
 "Quick Text Transform" = "日韓多語拼音轉換";
+"Bopomix could not import your McBopomofo user phrases yet: the folder they are kept in (%@) is not available. It will try again the next time it starts." = "混打注音尚未能匯入小麥注音的使用者詞庫：存放詞庫的資料夾（%@）目前無法讀取，下次啟動時會再試一次。";
+"Bopomix could not import your McBopomofo user phrases yet: %@ points somewhere that is not available. It will try again the next time it starts." = "混打注音尚未能匯入小麥注音的使用者詞庫：%@ 指向的位置目前無法讀取，下次啟動時會再試一次。";
+"Bopomix could not import your McBopomofo user phrases: %@ is in the way and is not a folder Bopomix can write to." = "混打注音無法匯入小麥注音的使用者詞庫：%@ 擋住了去路，而且不是混打注音可以寫入的資料夾。";
+"Bopomix imported some of your McBopomofo user phrases, but could not read these files: %@. The originals are still in %@. It will try again the next time it starts." = "混打注音已匯入部分小麥注音的使用者詞庫，但無法讀取這些檔案：%@。原始檔案仍在 %@，下次啟動時會再試一次。";
+"Bopomix could not read your McBopomofo user phrase folder (%@). It will try again the next time it starts." = "混打注音無法讀取小麥注音的使用者詞庫資料夾（%@），下次啟動時會再試一次。";
