@@ -1,4 +1,4 @@
-# mixime eval harness (P0.5)
+# bopomix eval harness (P0.5)
 
 Headless tooling to measure the engine's zh/en mixed-typing behavior
 without an installed input method, per `~/.claude/plans/zhuyin-ime-personal.md`'s
@@ -16,19 +16,19 @@ cmake --build build-engine
 ctest --test-dir build-engine   # optional: engine's own gtest suite
 ```
 
-This produces `build-engine/tools/eval/mixime-eval`.
+This produces `build-engine/tools/eval/bopomix-eval`.
 
 You need a `data.txt` (McBopomofo's compiled dictionary) to run it. A build
 of upstream McBopomofo already has one at
-`~/Dev/McBopomofo/build/Build/Products/Debug/McBopomofo.app/Contents/Resources/`
-or build mixime's own `McBopomofo` Xcode target for a fresh copy. Only
+`build/Build/Products/Debug/Bopomix.app/Contents/Resources/`
+or build bopomix's own `Bopomix` Xcode target for a fresh copy. Only
 `data.txt` is needed (not `data-plain-bpmf.txt` or
 `associated-phrases-v2.txt`); pass its containing directory as `--data`.
 
-## `mixime-eval` CLI
+## `bopomix-eval` CLI
 
 ```
-mixime-eval --data <ResourcesDir> --mode {keys|readings|keyseq} [--layout standard]
+bopomix-eval --data <ResourcesDir> --mode {keys|readings|keyseq} [--layout standard]
     [--mixed on|off] [--lexicon-dir <dir>]
 ```
 
@@ -77,7 +77,7 @@ Output columns: `composed_text \t uncomposable_segments \t latency_us`
   `keys` output's literal-text check (see `run_eval.py`) for that.
 - `latency_us`: wall time for that one line's simulation (LM load excluded).
 
-Example (from the acceptance check): `echo "su3cl3" | mixime-eval --data <dir> --mode keys`
+Example (from the acceptance check): `echo "su3cl3" | bopomix-eval --data <dir> --mode keys`
 outputs `你好	0	<n>us` -- `su3` and `cl3` are two complete, tone-marked
 syllables typed back to back with no space, each auto-composing the
 instant its tone key lands.
@@ -155,7 +155,7 @@ Two other divergences worth knowing about, both deliberate:
   backspace, force-commit, the user override model -- has no counterpart
   here at all. Treat this tool as an engine regression check; the
   acceptance measurement lives in
-  `McBopomofoTests/MixedScriptKeyHandlerTests.swift`
+  `BopomixTests/MixedScriptKeyHandlerTests.swift`
   (`testEval200ThroughKeyHandler`), which types the same corpus into a
   real `KeyHandler`.
 
@@ -166,7 +166,7 @@ out-of-repo** candidate file (see Privacy below).
 
 ```
 python3 tools/eval/build_corpus.py \
-    --cli ./build-engine/tools/eval/mixime-eval \
+    --cli ./build-engine/tools/eval/bopomix-eval \
     --data <ResourcesDir> \
     --candidates ~/Dev/mixime-private/corpus_candidates.txt \
     --output ~/Dev/mixime-private/eval200.tsv
@@ -194,7 +194,7 @@ Pipeline:
    `source=synthetic`, if the vault candidates don't reach the target
    (they did not need to for this corpus -- see BASELINE.md).
 5. Segment each sentence into ordered `{"text","lang":"zh"|"en"}` chunks.
-6. Batch every zh segment across the whole corpus through one `mixime-eval
+6. Batch every zh segment across the whole corpus through one `bopomix-eval
    --mode keyseq` call to get its readings and standard-layout keys. A row
    with any character keyseq can't find a reading for is dropped (not kept
    with a placeholder), backfilled from the same candidate pool.
@@ -223,13 +223,13 @@ id  sentence  segments(JSON)  readings  keys  source
 - `segments`: JSON array of `{"text": "...", "lang": "zh"|"en"}`, in order.
 - `readings`: each zh segment's space-separated Bopomofo readings, segments
   joined by `|` (e.g. `ㄋㄧˇ ㄏㄠˇ|ㄕˋ ㄐㄧㄝˋ`). For F2 scoring, join on `"
-  "` instead of `|` to get one flat reading sequence for `mixime-eval
+  "` instead of `|` to get one flat reading sequence for `bopomix-eval
   --mode readings` (a pipe is just this file's column-internal separator,
   not a real typing boundary).
 - `keys`: every segment's standard-layout keys in order, space-separated
   (en segments are lowercased literal letters; zh segments come from
   `keyseq` mode, already space-separated per syllable). Feed this directly
-  to `mixime-eval --mode keys`. Note that the per-syllable spaces are a
+  to `bopomix-eval --mode keys`. Note that the per-syllable spaces are a
   format artifact, not keystrokes -- see "Why a space after every
   syllable" above before feeding this column to anything that models the
   real key handling.
@@ -243,18 +243,18 @@ Runs the two baseline metrics over a corpus TSV and writes `BASELINE.md`.
 ```
 python3 tools/eval/run_eval.py \
     --corpus ~/Dev/mixime-private/eval200.tsv \
-    --cli ./build-engine/tools/eval/mixime-eval \
+    --cli ./build-engine/tools/eval/bopomix-eval \
     --data <ResourcesDir>
 ```
 
 - **F1** (English segment retention): types each row's `keys` column
-  through `mixime-eval --mode keys` and checks whether each gold English
+  through `bopomix-eval --mode keys` and checks whether each gold English
   token still appears literally (case-insensitive substring) in the
   composed output. Expected near 0% today -- see `keys` mode's
   explanation above for why.
 - **F2** (homophone/candidate-selection accuracy): concatenates each row's
   zh-segment readings (ignoring English and key-handling entirely) through
-  `mixime-eval --mode readings` and compares the composed text against the
+  `bopomix-eval --mode readings` and compares the composed text against the
   gold zh text, character by character.
 - Per-sentence latency (avg/p50/p95/max) for both modes, taken from the
   CLI's own per-line timing (excludes process startup and LM load).

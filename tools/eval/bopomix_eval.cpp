@@ -1,4 +1,4 @@
-// Copyright (c) 2026 and onwards The Mixime Authors.
+// Copyright (c) 2026 and onwards The Bopomix Authors.
 //
 // Permission is hereby granted, free of charge, to any person
 // obtaining a copy of this software and associated documentation
@@ -21,7 +21,7 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 // OTHER DEALINGS IN THE SOFTWARE.
 //
-// mixime-eval: a headless CLI harness for the McBopomofo/mixime C++ engine.
+// bopomix-eval: a headless CLI harness for the McBopomofo/bopomix C++ engine.
 //
 // This tool exists so that eval scripts (see tools/eval/run_eval.py) can
 // drive the *real* engine (Mandarin::BopomofoReadingBuffer +
@@ -350,7 +350,7 @@ int RunKeysMode(const std::shared_ptr<McBopomofoLM>& lm,
       // pending reading (mirrors the key not being consumed by the reading
       // buffer and falling through in KeyHandler.mm) and skip the key.
       flush(/*isSpaceOrEnd=*/false, /*isSpaceKey=*/false);
-      std::cerr << "mixime-eval: warning: key '" << rawKey
+      std::cerr << "bopomix-eval: warning: key '" << rawKey
                 << "' is not a standard-layout BPMF key; skipped\n";
     }
     // Simulate a trailing Enter/commit at end of line -- exactly like any
@@ -464,7 +464,7 @@ int RunKeyseqMode(const std::shared_ptr<McBopomofoLM>& lm,
         break;
       }
       if (!matched) {
-        std::cerr << "mixime-eval: warning: no dictionary reading for "
+        std::cerr << "bopomix-eval: warning: no dictionary reading for "
                      "character '"
                   << chars[i] << "' in keyseq mode; emitting placeholder\n";
         readings.push_back("_unknown_");
@@ -498,7 +498,7 @@ int main(int argc, char** argv) {
   std::string error;
   if (!ParseArgs(argc, argv, &args, &error)) {
     if (!error.empty()) {
-      std::cerr << "mixime-eval: error: " << error << "\n\n";
+      std::cerr << "bopomix-eval: error: " << error << "\n\n";
     }
     PrintUsage(argv[0]);
     return error.empty() ? 0 : 1;
@@ -506,7 +506,7 @@ int main(int argc, char** argv) {
 
   const std::filesystem::path dataPath = args.dataDir / "data.txt";
   if (!std::filesystem::exists(dataPath)) {
-    std::cerr << "mixime-eval: error: cannot find " << dataPath
+    std::cerr << "bopomix-eval: error: cannot find " << dataPath
               << " under --data " << args.dataDir << "\n";
     return 1;
   }
@@ -514,7 +514,7 @@ int main(int argc, char** argv) {
   auto lm = std::make_shared<McBopomofoLM>();
   lm->loadLanguageModel(dataPath.c_str());
   if (!lm->isDataModelLoaded()) {
-    std::cerr << "mixime-eval: error: failed to load language model from "
+    std::cerr << "bopomix-eval: error: failed to load language model from "
               << dataPath << "\n";
     return 1;
   }
@@ -528,11 +528,11 @@ int main(int argc, char** argv) {
     const std::filesystem::path techSeedPath =
         args.lexiconDir / "latin-tech-seed.txt";
     if (!lexicon.loadBuiltinWordList(wordsPath.c_str())) {
-      std::cerr << "mixime-eval: error: cannot load " << wordsPath << "\n";
+      std::cerr << "bopomix-eval: error: cannot load " << wordsPath << "\n";
       return 1;
     }
     if (!lexicon.loadBuiltinWordList(techSeedPath.c_str())) {
-      std::cerr << "mixime-eval: error: cannot load " << techSeedPath << "\n";
+      std::cerr << "bopomix-eval: error: cannot load " << techSeedPath << "\n";
       return 1;
     }
     lm->setMixedScriptEnabled(true);
@@ -549,6 +549,6 @@ int main(int argc, char** argv) {
     return RunKeyseqMode(lm, layout);
   }
 
-  std::cerr << "mixime-eval: error: unreachable mode " << args.mode << "\n";
+  std::cerr << "bopomix-eval: error: unreachable mode " << args.mode << "\n";
   return 1;
 }

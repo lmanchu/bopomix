@@ -171,10 +171,10 @@ if (ENABLE_ENGINE_PROFILE)
                 gramambular2_lib)
 endif ()
 
-# mixime-eval: headless eval harness CLI (see tools/eval/mixime_eval.cpp).
+# bopomix-eval: headless eval harness CLI (see tools/eval/bopomix_eval.cpp).
 # tools/eval/ lives outside this source tree, so an explicit binary dir is
 # given to keep its build output under this build tree
-# (<build>/tools/eval/mixime-eval).
+# (<build>/tools/eval/bopomix-eval).
 add_subdirectory(
         "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/eval"
         "${CMAKE_CURRENT_BINARY_DIR}/tools/eval")

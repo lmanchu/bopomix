@@ -13,7 +13,7 @@ For each surviving sentence, this script:
      (punctuation, digits, URLs, Slack mentions, markdown noise stripped),
      because the corpus's `segments` schema only distinguishes "zh"/"en".
   2. Splits it into ordered zh/en segments.
-  3. Calls the compiled mixime-eval CLI in `keyseq` mode (once, batched over
+  3. Calls the compiled bopomix-eval CLI in `keyseq` mode (once, batched over
      every zh segment in the whole corpus) to get each zh segment's
      Bopomofo readings and standard-layout key sequence -- this script does
      NOT reimplement a keyboard map or a reading dictionary.
@@ -256,7 +256,7 @@ def write_tsv(path: Path, rows: list[dict]) -> None:
 
 
 def run_keyseq_batch(cli: Path, data_dir: Path, zh_segments: list[str]) -> list[tuple[str, str]]:
-    """Runs `mixime-eval --mode keyseq` once over every zh segment across the
+    """Runs `bopomix-eval --mode keyseq` once over every zh segment across the
     whole corpus and returns a parallel list of (readings, keys)."""
     if not zh_segments:
         return []
@@ -297,7 +297,7 @@ def main() -> int:
         type=Path,
         default=Path("~/Dev/mixime-private/eval200.tsv").expanduser(),
     )
-    parser.add_argument("--cli", type=Path, required=True, help="path to mixime-eval")
+    parser.add_argument("--cli", type=Path, required=True, help="path to bopomix-eval")
     parser.add_argument("--data", type=Path, required=True, help="Resources dir with data.txt")
     parser.add_argument("--target", type=int, default=200)
     parser.add_argument(

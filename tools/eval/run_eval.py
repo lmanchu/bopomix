@@ -5,7 +5,7 @@ This measures the *current* (pre-F1) engine's behavior, not a target: it
 exists so future F1/F2 work has a number to beat, per the "Software 2.0"
 principle of measuring before building.
 
-Two independent metrics, both driven by the compiled mixime-eval CLI so the
+Two independent metrics, both driven by the compiled bopomix-eval CLI so the
 numbers reflect the real engine, not a re-implementation of it:
 
   F1 (English-segment retention): for each corpus row, type its `keys`
@@ -24,7 +24,7 @@ numbers reflect the real engine, not a re-implementation of it:
 
 Usage:
   python3 tools/eval/run_eval.py --corpus <path-to-eval200.tsv> \\
-      --cli ./build-engine/tools/eval/mixime-eval --data <ResourcesDir>
+      --cli ./build-engine/tools/eval/bopomix-eval --data <ResourcesDir>
 """
 
 from __future__ import annotations
@@ -327,7 +327,7 @@ Same corpus and language model as the P0.5 baseline above, run with
 ~/.claude/plans/zhuyin-ime-personal.md's P1 design section) instead of the
 baseline's unmodified engine.
 
-**These numbers are not acceptance criteria.** `mixime-eval` reimplements
+**These numbers are not acceptance criteria.** `bopomix-eval` reimplements
 the *ordering* of KeyHandler.mm's operations over the same engine; it has
 no candidate window, no Esc/backspace handling, no force-commit and no
 user override model, so it cannot see the class of defect that made the
@@ -386,11 +386,11 @@ genuinely do not cover it, or there is a bug -- see the category column.
         print(f"\nappended P1 section to {args.baseline_out}")
         return 0
 
-    baseline_md = f"""# mixime P0.5 baseline
+    baseline_md = f"""# bopomix P0.5 baseline
 
 Generated: {datetime.datetime.now().astimezone().isoformat(timespec='seconds')}
 
-Engine: mixime (fork of McBopomofo, upstream commit f5ba010 at fork time),
+Engine: bopomix (fork of McBopomofo, upstream commit f5ba010 at fork time),
 unmodified F1/F2 logic -- this is the *baseline*, i.e. what the stock
 McBopomofo engine does today, before any zh/en mixed-typing or AI
 re-ranking work lands.
