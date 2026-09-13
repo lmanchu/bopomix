@@ -45,8 +45,10 @@ import Foundation
 ///    must not disturb it; and
 ///  * nothing already present under the new identity is overwritten --
 ///    preferences are only filled in where the new domain has no value,
-///    and the folder copy stands down as soon as the new folder has
-///    anything in it.
+///    and the user-data folder is merged a line at a time: a file the new
+///    folder lacks is copied, and one it already has gains only the
+///    legacy lines it is missing, appended at the end. Existing content,
+///    its order and its comment header are left alone.
 ///
 /// Never runs under XCTest: `main.swift` gates the call on
 /// `Preferences.isRunningUnderXCTest`, for the same reason
@@ -108,16 +110,36 @@ enum LegacyMigration {
         "NextUpdateCheckDate",
     ]
 
+    /// One legacy file that could not be merged, and why. The reason is
+    /// diagnostic text, not something to parse.
+    struct SkippedFile: Equatable {
+        var name: String
+        var reason: String
+    }
+
+    /// Something that stopped the user-data half outright, described well
+    /// enough for `AppDelegate` to localize it.
+    enum MigrationProblem: Equatable {
+        case customLocationUnavailable(path: String)
+        case destinationBlocked(path: String)
+        case legacySymlinkTargetMissing(path: String)
+        case partial(skippedNames: [String], legacyFolderPath: String)
+    }
+
     /// What the folder half of the copy did.
     enum UserDataCopyOutcome: Equatable {
-        /// Files were copied into a new (or previously empty) folder.
-        case copied
-        /// Nothing to do: no legacy folder, or the new one already holds
-        /// the user's data.
+        /// At least one file was created or gained lines, and nothing was
+        /// skipped.
+        case copied(changed: [String])
+        /// Nothing to do and nothing wrong: no legacy folder, no regular
+        /// files in it, or every legacy line is already present.
         case notNeeded
-        /// Something was in the way or the copy threw. The marker must not
-        /// be set, so the next launch tries again.
-        case failed
+        /// Some files were merged, some could not be. Retryable -- the
+        /// merge is idempotent, so a later attempt re-tries only what is
+        /// still missing.
+        case partial(changed: [String], skipped: [SkippedFile])
+        /// Nothing could be attempted. Retryable.
+        case failed(MigrationProblem)
     }
 
     /// Where the legacy install's user data should be read from.
@@ -133,9 +155,10 @@ enum LegacyMigration {
 
     /// The user-data half's result as `run` reports it.
     enum UserDataMigrationOutcome: Equatable {
-        case copied
+        case copied(changed: [String])
         case notNeeded
-        case failed
+        case partial(changed: [String], skipped: [SkippedFile], legacyFolderPath: String)
+        case failed(MigrationProblem)
         /// The marker was already set on entry.
         case skipped(String)
         case customLocationUnavailable(String)
@@ -169,11 +192,17 @@ enum LegacyMigration {
                 // `populateDefaults()` will supply this app's own.
                 return false
             }
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return false
+            }
             // Component-wise, so that a folder merely *named* like the old
             // bundle -- `~/McBopomofo.app-scripts/hook.sh` -- is kept.
-            // Case-insensitively, because HFS+/APFS default to it and the
-            // same bundle can be spelled either way.
-            return !(path as NSString).pathComponents.contains {
+            // Standardized first, so `/a/McBopomofo.app/../b/hook.sh` is
+            // judged on where it actually points. Case-insensitively,
+            // because HFS+/APFS default to it and the same bundle can be
+            // spelled either way.
+            return !URL(fileURLWithPath: trimmed).standardizedFileURL.pathComponents.contains {
                 $0.caseInsensitiveCompare(legacyBundleName) == .orderedSame
             }
         }
@@ -243,76 +272,108 @@ enum LegacyMigration {
         return .folder(URL(fileURLWithPath: custom))
     }
 
-    /// Whether a file at the new location is one the app itself just
-    /// created and the user has never edited, and so may be replaced by
-    /// the legacy copy.
+    /// The dedup key for one line of a legacy file.
     ///
-    /// `LanguageModelManager +checkIfUserLanguageModelFilesExist` writes
-    /// five of these the first time anything touches the user dictionary
-    /// -- adding a phrase, opening a user file, typing English in mixed
-    /// mode -- which happens long before a migration that had to wait for
-    /// a volume to mount. Treating their presence as "the user already
-    /// has data" is what let a folder of placeholders block the real
-    /// import forever.
+    /// For `latin-user.txt` this must agree with the engine or the merge
+    /// makes a mess: `LatinLexicon::persistUserWords` keys on the text
+    /// before the first *tab* (a bare word is the whole line), lowercased
+    /// ASCII, and keeps the larger count. Two lines for one word with
+    /// different counts is precisely what it exists to avoid, so the word
+    /// alone -- not `word\tcount` -- is the key, and an incoming line for
+    /// a word the destination already knows is dropped rather than
+    /// appended.
     ///
-    /// Every one of those templates, in every localization, is comments
-    /// only (verified: no non-blank line outside a `#` in any of the ten
-    /// `template-*.txt`), and `ensureFileExists` writes a zero-byte file
-    /// when the resource is missing. So "empty, or nothing but `#` lines"
-    /// identifies them without this file having to know their contents --
-    /// which also keeps it correct when the templates are reworded or a
-    /// localization is added.
+    /// Every other file is a phrase list where the whole line is the
+    /// record, so the trimmed line is its own key.
+    static func mergeKey(for line: String, isLatinUserWordList: Bool) -> String {
+        guard isLatinUserWordList else {
+            return line
+        }
+        let word = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)[0]
+        return word.trimmingCharacters(in: .whitespaces).lowercased()
+    }
+
+    /// The name the Latin lexicon keeps its learned words in.
+    static let latinUserWordListName = "latin-user.txt"
+
+    /// The lines of `legacy` that `existing` does not already carry, in
+    /// the legacy file's own order.
     ///
-    /// Anything unreadable or not valid UTF-8 counts as the user's, since
-    /// the cost of guessing wrong in that direction is losing their words.
-    static func isUntouchedTemplate(at url: URL, fileManager: FileManager = .default) -> Bool {
-        guard let data = fileManager.contents(atPath: url.path) else {
-            return false
-        }
-        if data.isEmpty {
-            return true
-        }
-        guard let text = String(data: data, encoding: .utf8) else {
-            return false
-        }
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+    /// Blank lines and `#` comments are never carried: the destination has
+    /// its own header, written from this app's own template, and a merge
+    /// that appended the other app's header every time would not be
+    /// idempotent.
+    ///
+    /// Lines are split on `Character.isNewline` rather than on `"\n"`,
+    /// because Swift makes `\r\n` a single `Character` that is not equal
+    /// to `"\n"` -- splitting on the literal would hand a CRLF file back
+    /// as one long line. Each line is then compared trimmed of whitespace
+    /// and newlines, so a CRLF legacy file matches a LF destination
+    /// instead of appending everything again with `\r` tails.
+    ///
+    /// Pure, so the merge rules are testable on strings alone.
+    static func linesToAppend(legacy: String, existing: String, isLatinUserWordList: Bool)
+        -> [String]
+    {
+        var seen = Set<String>()
+        for line in existing.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty || trimmed.hasPrefix("#") {
                 continue
             }
-            return false
+            seen.insert(mergeKey(for: trimmed, isLatinUserWordList: isLatinUserWordList))
         }
-        return true
+
+        var result: [String] = []
+        for line in legacy.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") {
+                continue
+            }
+            let key = mergeKey(for: trimmed, isLatinUserWordList: isLatinUserWordList)
+            if seen.contains(key) {
+                continue
+            }
+            seen.insert(key)
+            result.append(trimmed)
+        }
+        return result
     }
 
-    /// Merges the legacy user-data folder's top-level regular files into
-    /// the new location, file by file.
+    /// Merges the legacy user-data folder into the new location, line by
+    /// line.
     ///
     /// Copies rather than moves: the original McBopomofo, if still
     /// installed, keeps reading and writing the folder it always had.
     ///
-    /// Per file rather than per folder, because the new folder is not
-    /// necessarily untouched by the time this runs -- see
-    /// `isUntouchedTemplate`. A file that is missing, or present only as
-    /// an untouched template, takes the legacy copy; a file with the
-    /// user's own content in it is left alone and logged.
+    /// Line by line rather than file by file, because by the time this
+    /// runs the destination is very often *both* the app's own template
+    /// header *and* some words the user typed in themselves. That happens
+    /// whenever the first attempt had to stand down -- an unmounted custom
+    /// location, say -- and the user, finding an empty dictionary, added a
+    /// phrase by hand: `LanguageModelManager` creates the folder and its
+    /// five files the moment anything touches the dictionary. Treating
+    /// such a file as "the user's, keep it whole" silently dropped their
+    /// entire legacy phrase list; treating it as a placeholder to
+    /// overwrite would have dropped the phrase they just typed. Appending
+    /// the lines that are missing keeps both.
+    ///
+    /// The destination's existing content, its order and its comment
+    /// header are never touched -- new lines only ever go on the end.
+    /// Every write is atomic (`Data.write(options: .atomic)` lands through
+    /// a sibling temp file and a rename), and each file is handled on its
+    /// own, so a failure part-way through leaves earlier files correctly
+    /// merged rather than needing a rollback. The merge is idempotent, so
+    /// the retry that a `.partial` result asks for re-appends nothing.
     ///
     /// Symlink-safe by construction, because the legacy folder is a place
     /// users point at their own sync setups. The source is resolved before
-    /// it is read, each entry is resolved before it is copied, and the
-    /// destination is always a real directory holding real files -- so a
+    /// it is read and each entry is resolved before it is read, so a
     /// legacy folder that *is* a symlink into Dropbox cannot end up
     /// silently sharing storage with the new one, which would reintroduce
     /// the two-writers-one-folder problem `keysNeverMigrated` avoids.
     /// Subdirectories and anything that is not a regular file are skipped;
     /// the input method only ever keeps flat text files here.
-    ///
-    /// On failure everything this call wrote is undone -- files it added
-    /// are removed, templates it replaced are put back as the zero-byte
-    /// file `ensureFileExists` would have written (which
-    /// `isUntouchedTemplate` still recognises, so the next attempt
-    /// replaces it again), and a directory it created is removed. A
-    /// directory or file that was already there is left as found.
     static func copyUserData(
         from legacyFolder: URL, to newFolder: URL, fileManager: FileManager = .default
     ) -> UserDataCopyOutcome {
@@ -334,7 +395,7 @@ enum LegacyMigration {
             NSLog(
                 "LegacyMigration: \(legacyFolder.path) is a symbolic link to a missing target; will retry"
             )
-            return .failed
+            return .failed(.legacySymlinkTargetMissing(path: legacyFolder.path))
         }
         guard resolvedExists, legacyIsDirectory.boolValue else {
             return .notNeeded
@@ -348,44 +409,22 @@ enum LegacyMigration {
             switch destinationAttributes[.type] as? FileAttributeType {
             case .typeDirectory:
                 break
-            case .typeSymbolicLink:
-                // Refuse: writing through it would put this app's data
-                // wherever the link points, quite possibly back into the
-                // folder McBopomofo is still using.
-                NSLog(
-                    "LegacyMigration: \(newFolder.path) is a symbolic link; not migrating user data"
-                )
-                return .failed
             default:
+                // A symlink would put this app's data wherever it points,
+                // quite possibly back into the folder McBopomofo is still
+                // using; anything else is simply in the way.
                 NSLog(
                     "LegacyMigration: \(newFolder.path) is not a directory; not migrating user data")
-                return .failed
+                return .failed(.destinationBlocked(path: newFolder.path))
             }
         }
 
-        // Files written by this call, so a failure can undo exactly them.
-        var written: [(url: URL, replacedTemplate: Bool)] = []
-        var createdDestination = false
-
-        func rollBack() {
-            for entry in written.reversed() {
-                try? fileManager.removeItem(at: entry.url)
-                if entry.replacedTemplate {
-                    fileManager.createFile(atPath: entry.url.path, contents: Data())
-                }
-            }
-            if createdDestination {
-                try? fileManager.removeItem(at: newFolder)
-            }
-        }
-
+        let sources: [(name: String, url: URL)]
         do {
-            // Listed before the destination is created, so that an
-            // unreadable source fails without leaving a new folder behind.
-            // Sorted, so that a partial failure leaves the same state
-            // every time rather than whatever order the file system
+            // Sorted, so a run that hits trouble part-way leaves the same
+            // state every time rather than whatever order the file system
             // happened to enumerate in.
-            let sources = try fileManager.contentsOfDirectory(atPath: resolvedLegacy.path)
+            sources = try fileManager.contentsOfDirectory(atPath: resolvedLegacy.path)
                 .sorted()
                 .map {
                     (
@@ -397,50 +436,93 @@ enum LegacyMigration {
                     (try? fileManager.attributesOfItem(atPath: entry.url.path)[.type]
                         as? FileAttributeType) == .typeRegular
                 }
-            if sources.isEmpty {
-                return .notNeeded
-            }
-
-            if destinationAttributes == nil {
-                try fileManager.createDirectory(at: newFolder, withIntermediateDirectories: true)
-                createdDestination = true
-            }
-
-            for source in sources {
-                let destination = newFolder.appendingPathComponent(source.name)
-                let existing = try? fileManager.attributesOfItem(atPath: destination.path)
-                if existing == nil {
-                    try fileManager.copyItem(at: source.url, to: destination)
-                    written.append((destination, false))
-                    continue
-                }
-                guard (existing?[.type] as? FileAttributeType) == .typeRegular else {
-                    NSLog(
-                        "LegacyMigration: \(destination.path) is not a regular file; keeping it")
-                    continue
-                }
-                guard isUntouchedTemplate(at: destination, fileManager: fileManager) else {
-                    NSLog(
-                        "LegacyMigration: \(source.name) already has content under the new identity; keeping it"
-                    )
-                    continue
-                }
-                try fileManager.removeItem(at: destination)
-                try fileManager.copyItem(at: source.url, to: destination)
-                written.append((destination, true))
-            }
-
-            // Nothing written means every legacy file already had a
-            // user-edited counterpart here. That is a complete answer, not
-            // a failure: there is nothing left to bring over.
-            return written.isEmpty ? .notNeeded : .copied
         } catch {
             NSLog(
-                "LegacyMigration: cannot copy \(resolvedLegacy.path) to \(newFolder.path): \(error.localizedDescription)"
-            )
-            rollBack()
-            return .failed
+                "LegacyMigration: cannot read \(resolvedLegacy.path): \(error.localizedDescription)")
+            return .failed(.destinationBlocked(path: resolvedLegacy.path))
         }
+        if sources.isEmpty {
+            return .notNeeded
+        }
+
+        if destinationAttributes == nil {
+            do {
+                try fileManager.createDirectory(at: newFolder, withIntermediateDirectories: true)
+            } catch {
+                NSLog(
+                    "LegacyMigration: cannot create \(newFolder.path): \(error.localizedDescription)"
+                )
+                return .failed(.destinationBlocked(path: newFolder.path))
+            }
+        }
+
+        var changed: [String] = []
+        var skipped: [SkippedFile] = []
+
+        for source in sources {
+            let destination = newFolder.appendingPathComponent(source.name)
+            let existingAttributes = try? fileManager.attributesOfItem(atPath: destination.path)
+
+            if existingAttributes == nil {
+                do {
+                    let data = try Data(contentsOf: source.url)
+                    try data.write(to: destination, options: .atomic)
+                    changed.append(source.name)
+                } catch {
+                    skipped.append(
+                        SkippedFile(name: source.name, reason: error.localizedDescription))
+                    NSLog("LegacyMigration: cannot copy \(source.name): \(error)")
+                }
+                continue
+            }
+
+            guard (existingAttributes?[.type] as? FileAttributeType) == .typeRegular else {
+                skipped.append(
+                    SkippedFile(name: source.name, reason: "destination is not a regular file"))
+                NSLog("LegacyMigration: \(destination.path) is not a regular file; skipping")
+                continue
+            }
+
+            do {
+                let legacyData = try Data(contentsOf: source.url)
+                let existingData = try Data(contentsOf: destination)
+                guard let legacyText = String(data: legacyData, encoding: .utf8),
+                    let existingText = String(data: existingData, encoding: .utf8)
+                else {
+                    // Guessing at an unknown encoding risks writing
+                    // mojibake into the user's dictionary. Say so instead.
+                    skipped.append(
+                        SkippedFile(name: source.name, reason: "not valid UTF-8"))
+                    NSLog("LegacyMigration: \(source.name) is not valid UTF-8; skipping")
+                    continue
+                }
+                let additions = linesToAppend(
+                    legacy: legacyText, existing: existingText,
+                    isLatinUserWordList: source.name == latinUserWordListName)
+                if additions.isEmpty {
+                    continue
+                }
+                var merged = existingText
+                if !merged.isEmpty, merged.last?.isNewline != true {
+                    merged += "\n"
+                }
+                merged += additions.joined(separator: "\n") + "\n"
+                guard let mergedData = merged.data(using: .utf8) else {
+                    skipped.append(SkippedFile(name: source.name, reason: "cannot encode merge"))
+                    continue
+                }
+                try mergedData.write(to: destination, options: .atomic)
+                changed.append(source.name)
+            } catch {
+                skipped.append(SkippedFile(name: source.name, reason: error.localizedDescription))
+                NSLog("LegacyMigration: cannot merge \(source.name): \(error)")
+            }
+        }
+
+        if !skipped.isEmpty {
+            return .partial(changed: changed, skipped: skipped)
+        }
+        return changed.isEmpty ? .notNeeded : .copied(changed: changed)
     }
 
     /// Set by `migrateIfNeeded` when the user-data half did not happen and
@@ -450,20 +532,26 @@ enum LegacyMigration {
     /// A property rather than a direct call because `migrateIfNeeded` runs
     /// from `main.swift` before `NSApp.run()`, where putting a window on
     /// screen is not safe.
-    static var pendingUserNotice: String?
+    static var pendingUserNotice: MigrationProblem?
 
-    /// The short reason to show the user, or nil when there is nothing to
-    /// say. Pure, so the message rules are testable.
+    /// What to tell the user, or nil when there is nothing to say. Pure,
+    /// so the message rules are testable.
     ///
-    /// Only the two retryable outcomes produce one: a copy that failed and
-    /// a custom location that was not mounted. `.copied`, `.notNeeded` and
-    /// `.skipped` are all successful ends of the story.
-    static func userNoticeReason(for outcome: UserDataMigrationOutcome) -> String? {
+    /// Returns the problem rather than a sentence: the wording lives in
+    /// `AppDelegate` with the rest of the localized strings, so a zh-Hant
+    /// user does not get a bare English clause spliced into their notice.
+    ///
+    /// Only the retryable outcomes produce one. `.copied`, `.notNeeded`
+    /// and `.skipped` are successful ends of the story.
+    static func userNoticeReason(for outcome: UserDataMigrationOutcome) -> MigrationProblem? {
         switch outcome {
-        case .failed:
-            return "user data folder could not be copied"
+        case .failed(let problem):
+            return problem
         case .customLocationUnavailable(let path):
-            return "custom location not available: \(path)"
+            return .customLocationUnavailable(path: path)
+        case .partial(_, let skipped, let legacyFolderPath):
+            return .partial(
+                skippedNames: skipped.map(\.name), legacyFolderPath: legacyFolderPath)
         case .copied, .notNeeded, .skipped:
             return nil
         }
@@ -472,12 +560,17 @@ enum LegacyMigration {
     /// The whole decision, as a function of its inputs and the file system
     /// it is handed.
     ///
-    /// Not pure: the folder copy really happens here. What it does keep
+    /// Not pure: the folder merge really happens here. What it does keep
     /// out of reach of a live domain is the *preference* half and both
     /// marker rules -- the part that can permanently lose a user's
     /// dictionary if it is wrong -- which come back as data for
     /// `migrateIfNeeded` to apply, so they can be tested against a
     /// temporary directory.
+    ///
+    /// The user-data marker is set only for `.copied` and `.notNeeded`.
+    /// `.partial`, `.failed` and `.customLocationUnavailable` all leave it
+    /// unset so the next launch tries again; because the merge is
+    /// idempotent, a retry re-appends nothing it already appended.
     static func run(
         legacyPreferences: [String: Any],
         currentPreferences: [String: Any],
@@ -491,13 +584,16 @@ enum LegacyMigration {
             prefsAlreadyMigrated
             ? [:]
             : preferencesToMigrate(legacy: legacyPreferences, current: currentPreferences)
+        let setPrefsMarker = !prefsAlreadyMigrated
+
+        func result(_ outcome: UserDataMigrationOutcome, marker: Bool) -> MigrationResult {
+            MigrationResult(
+                preferencesToWrite: preferences, userDataOutcome: outcome,
+                setPrefsMarker: setPrefsMarker, setUserDataMarker: marker)
+        }
 
         if userDataAlreadyMigrated {
-            return MigrationResult(
-                preferencesToWrite: preferences,
-                userDataOutcome: .skipped("user data marker already set"),
-                setPrefsMarker: !prefsAlreadyMigrated,
-                setUserDataMarker: false)
+            return result(.skipped("user data marker already set"), marker: false)
         }
 
         switch legacyUserDataFolder(
@@ -505,26 +601,19 @@ enum LegacyMigration {
             fileManager: fileManager)
         {
         case .customLocationUnavailable(let path):
-            return MigrationResult(
-                preferencesToWrite: preferences,
-                userDataOutcome: .customLocationUnavailable(path),
-                setPrefsMarker: !prefsAlreadyMigrated,
-                setUserDataMarker: false)
+            return result(.customLocationUnavailable(path), marker: false)
         case .folder(let folder):
-            let outcome = copyUserData(from: folder, to: newFolder, fileManager: fileManager)
-            switch outcome {
-            case .copied:
-                return MigrationResult(
-                    preferencesToWrite: preferences, userDataOutcome: .copied,
-                    setPrefsMarker: !prefsAlreadyMigrated, setUserDataMarker: true)
+            switch copyUserData(from: folder, to: newFolder, fileManager: fileManager) {
+            case .copied(let changed):
+                return result(.copied(changed: changed), marker: true)
             case .notNeeded:
-                return MigrationResult(
-                    preferencesToWrite: preferences, userDataOutcome: .notNeeded,
-                    setPrefsMarker: !prefsAlreadyMigrated, setUserDataMarker: true)
-            case .failed:
-                return MigrationResult(
-                    preferencesToWrite: preferences, userDataOutcome: .failed,
-                    setPrefsMarker: !prefsAlreadyMigrated, setUserDataMarker: false)
+                return result(.notNeeded, marker: true)
+            case .partial(let changed, let skipped):
+                return result(
+                    .partial(changed: changed, skipped: skipped, legacyFolderPath: folder.path),
+                    marker: false)
+            case .failed(let problem):
+                return result(.failed(problem), marker: false)
             }
         }
     }
