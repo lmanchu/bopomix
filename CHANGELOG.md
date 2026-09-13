@@ -2,7 +2,7 @@
 
 混打注音相對於上游小麥注音（McBopomofo）的變更。上游本身的版本紀錄見 [McBopomofo releases](https://github.com/openvanilla/McBopomofo/releases)。
 
-## 0.1.0（未發布）
+## 0.1.0（2026-09-14）
 
 第一個公開版。基底是 McBopomofo `f5ba010`（2026-09）。
 
