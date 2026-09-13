@@ -4,7 +4,7 @@ project(MixedScript)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 
-# P1 zh/en mixed-typing (see ~/.claude/plans/zhuyin-ime-personal.md). Mirrors
+# P1 zh/en mixed-typing (see the design notes). Mirrors
 # the Mandarin/ and gramambular2/ subdirectory pattern: a small static lib
 # plus its own gtest binary, consumed by McBopomofoLMLib (McBopomofoLM
 # merges LatinPassthroughLM into its unigram dispatch) and by KeyHandler.mm

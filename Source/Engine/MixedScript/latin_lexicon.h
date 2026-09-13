@@ -25,7 +25,7 @@
 // MixedScriptTracker (see mixed_script_tracker.h) to tell whether a run of
 // ASCII letters typed without leaving Bopomofo mode is more likely an
 // English word than a Chinese reading. See
-// ~/.claude/plans/zhuyin-ime-personal.md's "P1 設計" section for the
+// the design notes' "P1 設計" section for the
 // product rationale (rules A/B/C).
 
 #ifndef SRC_ENGINE_MIXEDSCRIPT_LATIN_LEXICON_H_
@@ -141,7 +141,7 @@ class LatinLexicon {
   // trailing space: the built-in list is far too permissive for that (a
   // two-letter run like "up"/"el" is both an English word and an extremely
   // common tone-1 syllable), whereas a word in this store is one the user
-  // has personally disambiguated before. See zhuyin-ime-personal.md's P1
+  // has personally disambiguated before. See the design notes' P1
   // section and docs/REVIEW-P1-2026-09-10.md's B1/B2.
   bool isUserWord(const std::string& text) const;
 
@@ -156,7 +156,7 @@ class LatinLexicon {
   // sorted lazily on first use, which used to cost ~294 ms on the key
   // thread the first time anything called this. Not on P1's hot path
   // (MixedScriptTracker's decision logic never calls it); kept for P3's
-  // predictive-typing work, see zhuyin-ime-personal.md's F3 scope.
+  // predictive-typing work, see the design notes' F3 scope.
   bool isPrefix(const std::string& text) const;
 
   // Returns the word's rank (0 = most frequent) or -1 if `text` is not a
@@ -196,7 +196,7 @@ class LatinLexicon {
   // "th" completing normally.
   int sourceTier(const std::string& text) const;
 
-  // P3 predictive typing (see zhuyin-ime-personal.md's F3 scope). Returns
+  // P3 predictive typing (see the design notes' F3 scope). Returns
   // up to `n` known words that start with (but are longer than) `prefix`,
   // best completion first. Ordering: a *confirmed* user word (score >=
   // kUserWordConfirmedScore) beats every builtin word, ranked among

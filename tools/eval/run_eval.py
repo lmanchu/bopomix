@@ -23,7 +23,7 @@ numbers reflect the real engine, not a re-implementation of it:
   problem that F1 measures.
 
 Usage:
-  python3 tools/eval/run_eval.py --corpus <path-to-eval200.tsv> \\
+  python3 tools/eval/run_eval.py --corpus <path-to-corpus.tsv> \\
       --cli ./build-engine/tools/eval/bopomix-eval --data <ResourcesDir>
 """
 
@@ -302,7 +302,7 @@ def main() -> int:
     import datetime
 
     if mixed:
-        # P1 (see zhuyin-ime-personal.md): append to the existing
+        # P1 (see the design notes): append to the existing
         # BASELINE.md rather than overwriting it, so the P0.5 baseline
         # numbers above stay intact for comparison. Run with --mixed off
         # first (the default) to (re)generate that baseline section.
@@ -324,7 +324,7 @@ Generated: {datetime.datetime.now().astimezone().isoformat(timespec='seconds')}
 
 Same corpus and language model as the P0.5 baseline above, run with
 `--mixed on` (Source/Engine/MixedScript/, see
-~/.claude/plans/zhuyin-ime-personal.md's P1 design section) instead of the
+the design notes' P1 design section) instead of the
 baseline's unmodified engine.
 
 **These numbers are not acceptance criteria.** `bopomix-eval` reimplements
@@ -424,7 +424,7 @@ each gold English token still appears literally in the composed output.
 | latency (avg / p50 / p95 / max) | {statistics.mean(f1_latencies_us):.0f}us / {percentile(f1_latencies_us, 0.5):.0f}us / {percentile(f1_latencies_us, 0.95):.0f}us / {max(f1_latencies_us)}us |
 
 This is expected to be near 0%: the current engine has no English-awareness
-at all (see zhuyin-ime-personal.md's F1 scope). Every English letter is
+at all (see the design notes' F1 scope). Every English letter is
 also a valid standard-layout Bopomofo key, so an English word typed without
 switching modes is either silently dropped (composition fails
 `hasUnigrams`) or misrecognized as unrelated Chinese character(s) -- it is

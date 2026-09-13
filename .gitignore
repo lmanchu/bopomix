@@ -19,8 +19,10 @@ codecov_comment.md
 DerivedData
 build-engine
 
-# P0.5 eval harness: Lman's own text must never enter this repo. Any file
-# matching *.private.* (corpus candidates, generated eval sets derived from
-# personal vault/Slack text) stays under ~/Dev/mixime-private/ only.
+# P0.5 eval harness: nobody's personal text may enter this repo. Corpus
+# candidates and the eval TSVs generated from them are derived from private
+# notes/chat logs, so keep them outside the repo (point BOPOMIX_EVAL_CORPUS
+# at them) or under the ignored eval-corpus/ directory.
 # See tools/eval/README.md.
 *.private.*
+eval-corpus/

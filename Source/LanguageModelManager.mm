@@ -93,7 +93,7 @@ static void LTLoadVariantAnnotatorData()
     }
 }
 
-// P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md).
+// P1 zh/en mixed typing (see the design notes).
 // Loads the two bundled word lists plus the user's own learned-word file
 // into gLatinLexicon. Safe to call more than once; only the first call
 // does any work. This never touches gLanguageModelMcBopomofo's
@@ -132,7 +132,7 @@ static void LTLoadMixedScriptLexicon()
     NSString *userPath = [LanguageModelManager latinUserWordListPath];
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        // P3 predictive typing (see zhuyin-ime-personal.md's F3 scope):
+        // P3 predictive typing (see the design notes' F3 scope):
         // tech-seed is loaded *before* the dictionary so its hand-ranked
         // terms always outrank every dictionary word regardless of the
         // dictionary's own SCOWL-tier rank -- see

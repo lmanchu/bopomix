@@ -2,9 +2,9 @@
 """Build tools/eval's 200-sentence chat-style zh/en mixed-typing eval corpus.
 
 Reads candidate sentences from a private, out-of-repo file (see
---candidates; defaults to ~/Dev/mixime-private/corpus_candidates.txt, which
-is mostly AI-generated summaries and Slack/gmail text, NOT sentences Lman
-actually typed), filters them down to short, colloquial, zh/en-mixed chat
+--candidates; the maintainer's own set was mostly AI-generated summaries and
+Slack/gmail text, NOT sentences the maintainer actually typed), filters them
+down to short, colloquial, zh/en-mixed chat
 sentences, and pads the remainder up to --target with synthetic sentences
 generated from templates (clearly tagged source=synthetic).
 
@@ -20,9 +20,9 @@ For each surviving sentence, this script:
   4. Writes id / sentence / segments (JSON) / readings / keys / source to
      the output TSV.
 
-Privacy: the output TSV can contain Lman's own text (via the vault-derived
-candidates) and MUST stay under ~/Dev/mixime-private/ (see repo .gitignore's
-`*.private.*` rule and tools/eval/README.md). Only tools/eval/fixtures/
+Privacy: the output TSV can contain your own text (via the vault-derived
+candidates) and MUST stay out of this repo (see repo .gitignore's
+`*.private.*` and `eval-corpus/` rules and tools/eval/README.md). Only tools/eval/fixtures/
 sample10.tsv (synthetic-only, 10 rows) is meant to ever enter this repo.
 """
 
@@ -36,6 +36,8 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # ---------------------------------------------------------------------------
 # Filtering
@@ -290,12 +292,14 @@ def main() -> int:
     parser.add_argument(
         "--candidates",
         type=Path,
-        default=Path("~/Dev/mixime-private/corpus_candidates.txt").expanduser(),
+        default=REPO_ROOT / "eval-corpus" / "corpus_candidates.txt",
+        help="private, out-of-VCS candidate sentences (one per line)",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("~/Dev/mixime-private/eval200.tsv").expanduser(),
+        default=REPO_ROOT / "eval-corpus" / "corpus.tsv",
+        help="where to write the generated corpus TSV (never commit it)",
     )
     parser.add_argument("--cli", type=Path, required=True, help="path to bopomix-eval")
     parser.add_argument("--data", type=Path, required=True, help="Resources dir with data.txt")
@@ -374,7 +378,7 @@ def main() -> int:
 
     # tools/eval/fixtures/sample10.tsv is a repo-committed, synthetic-only
     # sample (see .gitignore's *.private.* rule and the module docstring).
-    # It is generated independently of whether eval200.tsv itself needed any
+    # It is generated independently of whether the corpus TSV itself needed any
     # synthetic padding, so it always has 10 rows.
     fixture_sentences = generate_synthetic(
         10, avoid=seen_norm | {r["sentence"] for r in rows}

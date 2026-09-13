@@ -2,9 +2,7 @@
 
 ## mixime：中英混打（P1，預設關閉）
 
-這個 fork 多了「不切換輸入法直接打英文」的功能（見
-`~/.claude/plans/zhuyin-ime-personal.md` 的 F1／P1 節）。P1 期間**預設關閉**，
-要 dogfood 請自己打開：
+P1 期間**預設關閉**，要 dogfood 請自己打開：
 
 ```sh
 defaults write io.github.lmanchu.inputmethod.bopomix MixedScriptEnabled -bool true

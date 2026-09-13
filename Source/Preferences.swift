@@ -40,17 +40,17 @@ private let kChineseConversionEnabledKey = "ChineseConversionEnabled"
 private let kHalfWidthPunctuationEnabledKey = "HalfWidthPunctuationEnable"
 private let kEscToCleanInputBufferKey = "EscToCleanInputBuffer"
 private let kKeepReadingUponCompositionError = "KeepReadingUponCompositionError"
-// P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md). No UI
+// P1 zh/en mixed typing (see the design notes). No UI
 // yet (planned for P4) -- these are UserDefaults-only for now, per
 // AGENTS.md's Preferences convention.
 private let kMixedScriptEnabledKey = "MixedScriptEnabled"
 private let kMixedScriptLatinOnSpaceForUserWordsKey = "MixedScriptLatinOnSpaceForUserWords"
-// P3 English prediction + Tab completion (see zhuyin-ime-personal.md's F3
+// P3 English prediction + Tab completion (see the design notes' F3
 // scope). Gated on kMixedScriptEnabledKey too (see KeyHandler's
 // _mixedScriptAvailable) -- this only decides whether completion runs on
 // top of an already-available mixedScript run.
 private let kLatinCompletionEnabledKey = "LatinCompletionEnabled"
-// P3 fix #2 (see zhuyin-ime-personal.md's P3 fix #2): learn from Latin
+// P3 fix #2 (see the design notes' P3 fix #2): learn from Latin
 // runs actually typed and committed, not only from an explicit Tab/
 // candidate-window completion accept.
 private let kLatinLearnTypedWordsKey = "LatinLearnTypedWords"
@@ -358,7 +358,7 @@ class Preferences: NSObject {
     @UserDefault(key: kKeepReadingUponCompositionError, defaultValue: false)
     @objc static var keepReadingUponCompositionError: Bool
 
-    // MARK: P1 zh/en mixed typing (see zhuyin-ime-personal.md)
+    // MARK: P1 zh/en mixed typing (see the design notes)
 
     /// Master switch for zh/en mixed typing. Opt-in for now (P1):
     /// `defaults write io.github.lmanchu.inputmethod.bopomix
@@ -386,7 +386,7 @@ class Preferences: NSObject {
     @objc static var mixedScriptLatinOnSpaceForUserWords: Bool
 
     // MARK: P3 English prediction + Tab completion (see
-    // zhuyin-ime-personal.md's F3 scope)
+    // the design notes' F3 scope)
 
     /// Whether a Latin run shows a top-1 completion tooltip and Tab/
     /// Shift+Tab accept/cycle it. Defaults to on (unlike

@@ -111,7 +111,7 @@ class McBopomofoLM : public Formosa::Gramambular2::LanguageModel {
       std::function<std::string(const std::string&)> macroConverter);
   std::string convertMacro(const std::string& input) const;
 
-  // P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md).
+  // P1 zh/en mixed typing (see the design notes).
   // When disabled (the default), getUnigrams()/hasUnigrams() ignore
   // mixedScriptLM() entirely, so mixedScriptEnabled=false leaves existing
   // behavior byte-for-byte unchanged. KeyHandler drives mixedScriptLM()

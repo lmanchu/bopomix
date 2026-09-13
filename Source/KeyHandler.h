@@ -78,7 +78,7 @@ extern InputMode InputModePlainBopomofo;
                          associatedPhraseValue:(NSString *)phraseValue;
 
 // P3 English prediction + Tab completion (see
-// ~/.claude/plans/zhuyin-ime-personal.md's F3 scope): accepts `value` as
+// the design notes' F3 scope): accepts `value` as
 // the pending Latin run's completion, the same way Tab does, but from a
 // pick in the completion candidate window (see
 // InputMethodController+CandidateControllerDelegate.swift's

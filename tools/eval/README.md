@@ -1,7 +1,7 @@
 # bopomix eval harness (P0.5)
 
 Headless tooling to measure the engine's zh/en mixed-typing behavior
-without an installed input method, per `~/.claude/plans/zhuyin-ime-personal.md`'s
+without an installed input method, per the design notes'
 "build the harness before the feature" principle. Everything here talks to
 the *real* C++ engine (`Source/Engine/`) -- nothing is re-implemented in
 Python; Python only orchestrates the compiled CLI and does filtering/scoring.
@@ -32,7 +32,7 @@ bopomix-eval --data <ResourcesDir> --mode {keys|readings|keyseq} [--layout stand
     [--mixed on|off] [--lexicon-dir <dir>]
 ```
 
-`--mixed on` (P1, see `zhuyin-ime-personal.md`'s P1 design section) drives
+`--mixed on` (P1, see the design notes' P1 design section) drives
 `keys` mode through the same `Source/Engine/MixedScript/` decision engine
 KeyHandler.mm uses for zh/en mixed typing -- rule A (structurally
 impossible Bopomofo shape) and rule B (dictionary word, which only adds a
@@ -59,7 +59,7 @@ once a tone marker lands (or on a space, or at end of line, simulating a
 trailing Enter), the pending reading is composed via `ReadingGrid::
 insertReading` and, at the very end, `ReadingGrid::walk()` picks the best
 path. It does **not** add any English-detection logic -- that gap is
-exactly what F1 (see zhuyin-ime-personal.md) is meant to close, so this
+exactly what F1 (see the design notes) is meant to close, so this
 harness can measure it honestly. Concretely: every ASCII letter is *also* a
 valid standard-layout Bopomofo key, so typing an English word without
 switching modes gets swallowed into the reading buffer and either silently
@@ -157,7 +157,24 @@ Two other divergences worth knowing about, both deliberate:
   acceptance measurement lives in
   `BopomixTests/MixedScriptKeyHandlerTests.swift`
   (`testEval200ThroughKeyHandler`), which types the same corpus into a
-  real `KeyHandler`.
+  real `KeyHandler`. That test and
+  `LatinCompletionKeyHandlerTests.testEval200LatinCompletion` read the
+  corpus from the `BOPOMIX_EVAL_CORPUS` environment variable and skip
+  themselves when it is unset or points at a file that does not exist:
+
+  ```
+  BOPOMIX_EVAL_CORPUS=<out-of-repo>/corpus.tsv \
+      tools/eval/check_plist_unchanged.sh \
+      xcodebuild -project Bopomix.xcodeproj -scheme Bopomix \
+        -configuration Debug -derivedDataPath build \
+        CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM="" test
+  ```
+
+  `xcodebuild` does not pass its own environment to the test host: only
+  `TEST_RUNNER_<NAME>` variables get through, with the prefix stripped.
+  `check_plist_unchanged.sh` re-exports `BOPOMIX_EVAL_CORPUS` under that
+  name for you; calling `xcodebuild` directly needs
+  `TEST_RUNNER_BOPOMIX_EVAL_CORPUS=...` instead.
 
 ## `build_corpus.py`
 
@@ -168,8 +185,8 @@ out-of-repo** candidate file (see Privacy below).
 python3 tools/eval/build_corpus.py \
     --cli ./build-engine/tools/eval/bopomix-eval \
     --data <ResourcesDir> \
-    --candidates ~/Dev/mixime-private/corpus_candidates.txt \
-    --output ~/Dev/mixime-private/eval200.tsv
+    --candidates <out-of-repo>/corpus_candidates.txt \
+    --output <out-of-repo>/corpus.tsv
 ```
 
 Pipeline:
@@ -210,7 +227,7 @@ list-marker glyph like "O" or "V") can still show up as its own one-letter
 `en` segment in a small number of rows. Not fixed in this pass; flagged for
 follow-up rather than silently ignored.
 
-### Corpus format (`eval200.tsv`)
+### Corpus format (`corpus.tsv`)
 
 Six tab-separated columns, no header:
 
@@ -233,7 +250,7 @@ id  sentence  segments(JSON)  readings  keys  source
   format artifact, not keystrokes -- see "Why a space after every
   syllable" above before feeding this column to anything that models the
   real key handling.
-- `source`: `vault` (derived from Lman's own text, see Privacy) or
+- `source`: `vault` (derived from your own text, see Privacy) or
   `synthetic` (hand-written template, safe to publish).
 
 ## `run_eval.py`
@@ -242,7 +259,7 @@ Runs the two baseline metrics over a corpus TSV and writes `BASELINE.md`.
 
 ```
 python3 tools/eval/run_eval.py \
-    --corpus ~/Dev/mixime-private/eval200.tsv \
+    --corpus <out-of-repo>/corpus.tsv \
     --cli ./build-engine/tools/eval/bopomix-eval \
     --data <ResourcesDir>
 ```
@@ -273,9 +290,10 @@ whether the failure is context-dependent or a genuine rule/dictionary gap.
 
 ## Privacy
 
-`~/Dev/mixime-private/` (candidates and the generated `eval200.tsv`) can
-contain Lman's own text and must **never** enter this repo. The repo's
-`.gitignore` has a blanket `*.private.*` rule as a backstop, and
+The candidate file and the generated corpus TSV can contain your own text
+and must **never** enter this repo. Keep them outside the working tree, or
+under the ignored `eval-corpus/` directory. The repo's `.gitignore` has a
+blanket `*.private.*` rule and an `eval-corpus/` rule as backstops, and
 `tools/eval/fixtures/sample10.tsv` (10 synthetic-only rows, regenerated by
 `build_corpus.py`) is the only corpus-shaped file meant to be committed
 here. Do not add a `--output` pointing inside this repo.

@@ -51,7 +51,7 @@ InputMode InputModeBopomofo = @"io.github.lmanchu.inputmethod.bopomix.Bopomofo";
 InputMode InputModePlainBopomofo = @"io.github.lmanchu.inputmethod.bopomix.PlainBopomofo";
 
 // P3 English prediction + Tab completion (see
-// ~/.claude/plans/zhuyin-ime-personal.md's F3 scope). The synthetic
+// the design notes' F3 scope). The synthetic
 // "reading" every candidate in the completion candidate window carries --
 // never a real Bopomofo reading or grid position, so it doubles as this
 // window's marker: _isLatinCompletionCandidateState: and the Swift
@@ -103,7 +103,7 @@ static const size_t kMinLatinRunLengthForPredictionTooltip = 4;
 
     NSString *_inputMode;
 
-    // P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md).
+    // P1 zh/en mixed typing (see the design notes).
     McBopomofo::MixedScript::MixedScriptTracker *_mixedScriptTracker;
 
     // The (reading, value) pairs this composition registered as rule-B
@@ -133,7 +133,7 @@ static const size_t kMinLatinRunLengthForPredictionTooltip = 4;
         newLanguageModel = [LanguageModelManager languageModelPlainBopomofo];
         newLanguageModel->setPhraseReplacementEnabled(false);
         // P1 zh/en mixed typing is scoped to InputModeBopomofo only (see
-        // zhuyin-ime-personal.md's P1 design section); Plain Bopomofo gets
+        // the design notes' P1 design section); Plain Bopomofo gets
         // no English-awareness in this pass.
         newLanguageModel->setMixedScriptEnabled(false);
     } else {
@@ -565,7 +565,7 @@ static const size_t kMinLatinRunLengthForPredictionTooltip = 4;
     // see if it's valid BPMF reading
     bool isValidKey = _bpmfReadingBuffer->isValidKey((char)charCode);
 
-    // MARK: P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md)
+    // MARK: P1 zh/en mixed typing (see the design notes)
     //
     // Only lowercase ASCII letters are ever fed to the tracker. Shift+letter
     // already took the CapsLock/Shift-forces-English path above (:391-405)
@@ -1162,7 +1162,7 @@ static const size_t kMinLatinRunLengthForPredictionTooltip = 4;
     return NO;
 }
 
-// MARK: P1 zh/en mixed typing (see ~/.claude/plans/zhuyin-ime-personal.md)
+// MARK: P1 zh/en mixed typing (see the design notes)
 
 // Commits the tracker's pending Latin run (rule A) into the grid as a
 // single literal-text node and resets the tracker. Callers are
@@ -1201,7 +1201,7 @@ static const size_t kMinLatinRunLengthForPredictionTooltip = 4;
         return;
     }
 
-    // P3 fix #2 (see ~/.claude/plans/zhuyin-ime-personal.md's P3 fix #2):
+    // P3 fix #2 (see the design notes' P3 fix #2):
     // this is the single chokepoint every Rule-A run's boundary commit
     // passes through, so it is also the right place to learn from what
     // the user actually typed, not just what they explicitly accepted a
@@ -1251,7 +1251,7 @@ static const size_t kMinLatinRunLengthForPredictionTooltip = 4;
     }
 }
 
-// P3 fix #2 (see ~/.claude/plans/zhuyin-ime-personal.md's P3 fix #2):
+// P3 fix #2 (see the design notes' P3 fix #2):
 // "learn from what you actually type", not only from an explicit
 // completion accept. Called only from _commitMixedScriptLatinRun, i.e.
 // only for a Rule-A run that reached an ordinary boundary commit -- Esc
@@ -1358,7 +1358,7 @@ static const size_t kMinLatinRunLengthForPredictionTooltip = 4;
 }
 
 // P3 English prediction + Tab completion (see
-// ~/.claude/plans/zhuyin-ime-personal.md's F3 scope): a strict narrowing
+// the design notes' F3 scope): a strict narrowing
 // of _mixedScriptAvailable, so turning mixedScript off (or an unsupported
 // keyboard layout) disables completion the same way it disables
 // everything else P1 added, with no separate gate to keep in sync.
@@ -1386,7 +1386,7 @@ static const size_t kMinLatinRunLengthForPredictionTooltip = 4;
 // completion, or an empty string when there is none or when `word` is
 // already a finished word.
 //
-// "Finished" (P3 fix #3, see ~/.claude/plans/zhuyin-ime-personal.md)
+// "Finished" (P3 fix #3, see the design notes)
 // means all three of:
 //
 //  1. at least kMinFinishedLatinWordLength characters. A one- or
@@ -1459,7 +1459,7 @@ static const size_t kMinLatinRunLengthForPredictionTooltip = 4;
 }
 
 // MARK: P3 English prediction + Tab completion (see
-// ~/.claude/plans/zhuyin-ime-personal.md's F3 scope)
+// the design notes' F3 scope)
 
 // Builds up to Preferences.candidateKeys.length completions for the
 // pending Latin run as a candidate window, or nil if there are none to
@@ -2366,7 +2366,7 @@ static const size_t kMinLatinRunLengthForPredictionTooltip = 4;
     VTCandidateController *gCurrentCandidateController = [self.delegate candidateControllerForKeyHandler:self];
 
     // MARK: P3 Latin completion candidate window (see
-    // ~/.claude/plans/zhuyin-ime-personal.md's F3 scope). Not grid-backed
+    // the design notes' F3 scope). Not grid-backed
     // -- the pending run it lists completions for has not been committed
     // to _grid (see handleInput:'s Tab branch) -- so it needs its own,
     // narrower handling instead of this method's grid-cursor and
@@ -3543,7 +3543,7 @@ static const size_t kMinLatinRunLengthForPredictionTooltip = 4;
         ? @(_mixedScriptTracker->latinRun().c_str())
         : @(_bpmfReadingBuffer->composedString().c_str());
 
-    // P3 English prediction (see ~/.claude/plans/zhuyin-ime-personal.md's
+    // P3 English prediction (see the design notes'
     // F3 scope): show the top-1 completion as a tooltip, never touching
     // the composing buffer itself -- unlike the candidate window, this
     // must not pop up on every single English letter. complete() already

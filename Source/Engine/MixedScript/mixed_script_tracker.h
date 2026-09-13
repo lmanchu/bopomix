@@ -33,7 +33,7 @@
 namespace McBopomofo::MixedScript {
 
 // The three-way call for one contiguous run of ASCII letters typed without
-// leaving Bopomofo mode. See zhuyin-ime-personal.md's P1 design section
+// leaving Bopomofo mode. See the design notes' P1 design section
 // for the product rationale.
 enum class Verdict {
   // No English signal (yet). Caller keeps feeding the real
@@ -148,7 +148,7 @@ class MixedScriptTracker {
   // way -- this only touches mixedScript's own bookkeeping.
   void popLastLatinChar();
 
-  // P3 predictive typing (see zhuyin-ime-personal.md's F3 scope and
+  // P3 predictive typing (see the design notes' F3 scope and
   // LatinLexicon::complete()): replaces the pending run's text with a
   // longer completion the user just accepted (Tab, or a pick from the
   // completion candidate window -- see KeyHandler's mixed-script hookup).
@@ -166,7 +166,7 @@ class MixedScriptTracker {
   void acceptCompletion(const std::string& word);
 
   // P3 "learn from what you actually type" (see
-  // zhuyin-ime-personal.md's P3 fix #2): true if the run's *current* text
+  // the design notes' P3 fix #2): true if the run's *current* text
   // was already explicitly written to the user's lexicon by a completion
   // accept (acceptCompletion()) and has not changed since. KeyHandler's
   // _commitMixedScriptLatinRun uses this to avoid double-counting a word

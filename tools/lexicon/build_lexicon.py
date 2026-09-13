@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Builds Source/Data/latin-words.txt for the zh/en mixed-typing feature
-(see ~/.claude/plans/zhuyin-ime-personal.md's "P1 設計"/"P3 設計" sections
+(see the design notes' "P1 設計"/"P3 設計" sections
 and Source/Engine/MixedScript/latin_lexicon.h).
 
 Source (2026-09-11 P3 fix-round rework): SCOWL/ESDB itself (the "Spell
