@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleShortVersionString</key>
-	<string>3.1.1</string>
+	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>2510</string>
+	<string>3000</string>
 	<key>Description</key>
 	<dict>
 		<key>en</key>
-		<string>Bopomix initial release.</string>
+		<string>Bopomix 0.1.0: the first public build. Mixed Chinese/English typing without switching, English prediction with Tab completion, and a one-time import of your McBopomofo settings and phrases.</string>
 		<key>zh-Hant</key>
-		<string>混打注音初版。</string>
+		<string>混打注音 0.1.0：第一個公開版。打中文時直接打英文不用切換、英文預測與 Tab 補全、首次啟動自動接手小麥注音的設定與詞庫。</string>
 	</dict>
 	<key>UpdateInfoSite</key>
 	<string>https://github.com/lmanchu/bopomix/releases</string>
