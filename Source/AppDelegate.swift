@@ -243,11 +243,35 @@ class AppDelegate: NSObject, NSApplicationDelegate, NonModalAlertWindowControlle
             return
         }
         LegacyMigration.pendingUserNotice = nil
-        NotifierController.notify(
-            message: String(
+        NotifierController.notify(message: Self.message(for: reason), stay: true)
+    }
+
+    /// The sentence for one migration problem. Separate from the notifier
+    /// call so each case gets its own localizable string rather than a
+    /// single template with an English clause spliced into it.
+    private static func message(for problem: LegacyMigration.MigrationProblem) -> String {
+        switch problem {
+        case .customLocationUnavailable(let path):
+            return String(
                 format: NSLocalizedString(
-                    "Bopomix could not import your McBopomofo user phrases yet (%@). It will try again the next time it starts.",
-                    comment: ""), reason), stay: true)
+                    "Bopomix could not import your McBopomofo user phrases yet: the folder they are kept in (%@) is not available. It will try again the next time it starts.",
+                    comment: ""), path)
+        case .legacySymlinkTargetMissing(let path):
+            return String(
+                format: NSLocalizedString(
+                    "Bopomix could not import your McBopomofo user phrases yet: %@ points somewhere that is not available. It will try again the next time it starts.",
+                    comment: ""), path)
+        case .destinationBlocked(let path):
+            return String(
+                format: NSLocalizedString(
+                    "Bopomix could not import your McBopomofo user phrases: %@ is in the way and is not a folder Bopomix can write to.",
+                    comment: ""), path)
+        case .partial(let skippedNames, let legacyFolderPath):
+            return String(
+                format: NSLocalizedString(
+                    "Bopomix imported some of your McBopomofo user phrases, but could not read these files: %@. The originals are still in %@. It will try again the next time it starts.",
+                    comment: ""), skippedNames.joined(separator: ", "), legacyFolderPath)
+        }
     }
 
     @MainActor
